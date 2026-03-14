@@ -128,10 +128,18 @@ export interface ConfigProfile {
   timeout: number;
 }
 
+// Confirmation code entry
+export interface ConfirmationEntry {
+  code: string;
+  createdAt: number;
+  expiresAt: number;
+}
+
 // Session types
 export interface Session {
   currentProfile: string;
   sessions: Record<string, UserSession>;
+  confirmationCodes?: Record<string, ConfirmationEntry>;
 }
 
 export interface UserSession {

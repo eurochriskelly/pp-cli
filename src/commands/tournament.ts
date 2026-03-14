@@ -3,7 +3,16 @@ import { getCurrentSession } from '../lib/config.js';
 import { getApiClient, assertOutputFormat } from '../lib/helpers.js';
 import { formatOutput, formatStandings, formatStandingsWithMatches } from '../lib/formatters.js';
 import { success, error, info } from '../lib/utils.js';
+import {
+  storeConfirmationCode,
+  verifyConfirmationCode,
+  clearConfirmationCode
+} from '../lib/confirmation-codes.js';
 import type { GlobalOptions, Tournament, TournamentSummary } from '../types/index.js';
+
+// Types for tournament data
+type Fixture = { id: number; tournamentId: number; cards?: unknown[] };
+type Squad = { id: number; tournamentId: number; players?: unknown[] };
 
 export function createTournamentCommands(): Command {
   const tournamentCmd = new Command('tournament')
@@ -153,13 +162,90 @@ export function createTournamentCommands(): Command {
 
   tournamentCmd
     .command('delete <id>')
-    .description('Delete a tournament')
-    .action(async (id) => {
+    .description('Delete a tournament with confirmation')
+    .option('--confirmation-code <code>', 'Confirmation code from preview phase')
+    .action(async (id, options) => {
       try {
         const { client } = await getApiClient();
-        await client.delete(`/api/tournaments/${id}`);
 
-        success(`Deleted tournament ${id}`);
+        // Check if this is a confirmation phase
+        if (options.confirmationCode) {
+          // Phase 2: Execute deletion with confirmation code
+          const isValid = await verifyConfirmationCode(id, options.confirmationCode);
+
+          if (!isValid) {
+            error('Invalid or expired confirmation code. Please run without --confirmation-code to generate a new one.');
+            process.exit(1);
+          }
+
+          // Execute the deletion
+          await client.delete(`/api/tournaments/${id}`);
+
+          // Clear the confirmation code immediately
+          await clearConfirmationCode(id);
+
+          success(`Deleted tournament ${id}`);
+          return;
+        }
+
+        // Phase 1: Show deletion preview and generate confirmation code
+        // Fetch tournament details
+        const tournament = await client.get<Tournament>(`/api/tournaments/${id}`);
+
+        // Fetch all related data for this tournament
+        const [fixtures, squads] = await Promise.all([
+          client.get<Fixture[]>(`/api/tournaments/${id}/fixtures`).catch(() => [] as Fixture[]),
+          client.get<Squad[]>(`/api/tournaments/${id}/squads`).catch(() => [] as Squad[])
+        ]);
+
+        // Count players
+        const playerCount = squads.reduce((total, squad) => {
+          return total + (squad.players?.length || 0);
+        }, 0);
+
+        // Count cards across all fixtures
+        let cardCount = 0;
+        for (const fixture of fixtures) {
+          try {
+            const cards = await client.get<unknown[]>(`/api/tournaments/${id}/fixtures/${fixture.id}/cards`);
+            cardCount += cards.length;
+          } catch {
+            // Skip fixtures that don't have cards
+          }
+        }
+
+        // Generate confirmation code
+        const confirmationCode = await storeConfirmationCode(id);
+
+        // Display deletion preview
+        console.log('\n═══════════════════════════════════════════════════════════════');
+        console.log('  ⚠️  TOURNAMENT DELETION PREVIEW  ⚠️');
+        console.log('═══════════════════════════════════════════════════════════════\n');
+
+        console.log('Tournament to be deleted:');
+        console.log(`  Name:      ${tournament.title}`);
+        console.log(`  Date:      ${tournament.date}`);
+        console.log(`  Location:  ${tournament.location}`);
+        console.log(`  Region:    ${tournament.region}`);
+        console.log(`  Status:    ${tournament.status}`);
+        console.log(`  ID:        ${tournament.id}\n`);
+
+        console.log('The following data will be PERMANENTLY deleted:\n');
+        console.log(`  📊 Fixtures:  ${fixtures.length}`);
+        console.log(`  👥 Squads:    ${squads.length}`);
+        console.log(`  🏃 Players:   ${playerCount}`);
+        console.log(`  🟨 Cards:     ${cardCount}\n`);
+
+        console.log('═══════════════════════════════════════════════════════════════');
+        console.log('  ⚠️  WARNING: THIS ACTION IS IRREVERSIBLE  ⚠️');
+        console.log('═══════════════════════════════════════════════════════════════\n');
+
+        console.log(`To confirm deletion, run:\n`);
+        console.log(`  ppx tournament delete ${id} --confirmation-code=${confirmationCode}\n`);
+        console.log(`This confirmation code is valid for 60 seconds.\n`);
+
+        info('No data has been deleted yet. Review the information above before proceeding.');
+
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to delete tournament';
         error(message);

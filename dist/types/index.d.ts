@@ -108,9 +108,15 @@ export interface ConfigProfile {
     outputFormat: 'table' | 'json' | 'yaml';
     timeout: number;
 }
+export interface ConfirmationEntry {
+    code: string;
+    createdAt: number;
+    expiresAt: number;
+}
 export interface Session {
     currentProfile: string;
     sessions: Record<string, UserSession>;
+    confirmationCodes?: Record<string, ConfirmationEntry>;
 }
 export interface UserSession {
     token: string;
