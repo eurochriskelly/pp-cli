@@ -1,5 +1,5 @@
 import * as yaml from 'js-yaml';
-import type { OutputFormat, TeamStanding, TournamentStandings } from '../types/index.js';
+import type { OutputFormat, TeamStanding, TournamentStandings, TournamentSummary } from '../types/index.js';
 
 export interface FormatterOptions {
   format: OutputFormat;
@@ -416,4 +416,177 @@ export async function formatStandingsWithMatches(
   }
 
   return lines.join('\n');
+}
+
+export interface TournamentListOptions {
+  format: OutputFormat;
+  includeOldClosed?: boolean;
+}
+
+function calculateDurationDays(startDate: string | undefined, endDate?: string): number {
+  if (!startDate) return 1;
+  if (!endDate) return 1;
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) return 1;
+  const diffTime = Math.abs(end.getTime() - start.getTime());
+  return Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+}
+
+// Helper to get field value from object with fallback to different case
+function getField(obj: Record<string, unknown>, lowerCaseKey: string): unknown {
+  // Try lowercase first
+  if (lowerCaseKey in obj) return obj[lowerCaseKey];
+  // Try PascalCase
+  const pascalKey = lowerCaseKey.charAt(0).toUpperCase() + lowerCaseKey.slice(1);
+  if (pascalKey in obj) return obj[pascalKey];
+  // Try all uppercase
+  const upperKey = lowerCaseKey.toUpperCase();
+  if (upperKey in obj) return obj[upperKey];
+  return undefined;
+}
+
+export function formatTournamentList(
+  tournaments: TournamentSummary[],
+  options: TournamentListOptions
+): string {
+  const { format, includeOldClosed = false } = options;
+
+  // Defensive check
+  if (!Array.isArray(tournaments)) {
+    return 'No tournaments found';
+  }
+
+  // Filter out closed/archived tournaments older than 1 month by default
+  const oneMonthAgo = new Date();
+  oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+
+  const filteredTournaments = includeOldClosed
+    ? tournaments
+    : tournaments.filter(t => {
+        // Defensive check for tournament object
+        if (!t) return false;
+        const tObj = t as unknown as Record<string, unknown>;
+        const status = String(getField(tObj, 'status') ?? '').toLowerCase();
+        // Always show non-closed/non-archived tournaments
+        if (status !== 'closed' && status !== 'archived') {
+          return true;
+        }
+        // For closed/archived, only show if within last month
+        const dateStr = getField(tObj, 'date') as string | undefined;
+        const tournamentDate = dateStr ? new Date(dateStr) : null;
+        return tournamentDate && tournamentDate >= oneMonthAgo;
+      });
+
+  if (filteredTournaments.length === 0) {
+    return 'No tournaments found';
+  }
+
+  switch (format) {
+    case 'json':
+      return JSON.stringify(filteredTournaments, null, 2);
+    case 'yaml':
+      return yaml.dump(filteredTournaments);
+    case 'csv':
+      return formatTournamentListCsv(filteredTournaments);
+    case 'table':
+    default:
+      return formatTournamentListTable(filteredTournaments);
+  }
+}
+
+function formatTournamentListTable(tournaments: TournamentSummary[]): string {
+  // Defensive check
+  if (!Array.isArray(tournaments) || tournaments.length === 0) {
+    return 'No tournaments found';
+  }
+
+  // Define columns: ID, Title, Date, Location, Region, Status, DUR (duration), FX (fixtures), TM (teams)
+  const headers = ['ID', 'TITLE', 'DATE', 'LOCATION', 'REGION', 'STAT', 'DUR', 'FX', 'TM'];
+
+  // Calculate column widths
+  const widths: number[] = headers.map(h => h.length);
+
+  const rows = tournaments.map(t => {
+    const tObj = t as unknown as Record<string, unknown>;
+    // Handle both camelCase and PascalCase field names
+    const duration = calculateDurationDays(
+      getField(tObj, 'date') as string | undefined,
+      getField(tObj, 'endDate') as string | undefined
+    );
+    const row = [
+      String(getField(tObj, 'id') ?? '-'),
+      String(getField(tObj, 'title') ?? '-'),
+      String(getField(tObj, 'date') ?? '-'),
+      String(getField(tObj, 'location') ?? '-'),
+      String(getField(tObj, 'region') ?? '-'),
+      String(getField(tObj, 'status') ?? '-'),
+      String(duration),
+      String(getField(tObj, 'fixtureCount') ?? '-'),
+      String(getField(tObj, 'teamsCount') ?? '-')
+    ];
+
+    row.forEach((cell, i) => {
+      widths[i] = Math.max(widths[i], cell.length);
+    });
+
+    return row;
+  });
+  
+  // Build output
+  const lines: string[] = [];
+  
+  // Header row
+  const headerRow = headers.map((h, i) => h.padEnd(widths[i])).join('  ');
+  lines.push(headerRow);
+  
+  // Separator line
+  const separator = headers.map((_, i) => '-'.repeat(widths[i])).join('  ');
+  lines.push(separator);
+  
+  // Data rows
+  for (const row of rows) {
+    const line = row.map((cell, i) => cell.padEnd(widths[i])).join('  ');
+    lines.push(line);
+  }
+  
+  return lines.join('\n');
+}
+
+function formatTournamentListCsv(tournaments: TournamentSummary[]): string {
+  // Defensive check
+  if (!Array.isArray(tournaments) || tournaments.length === 0) {
+    return 'id,title,date,location,region,status,duration,fixtures,teams';
+  }
+
+  const headers = ['id', 'title', 'date', 'location', 'region', 'status', 'duration', 'fixtures', 'teams'];
+
+  let csv = headers.join(',') + '\n';
+
+  for (const t of tournaments) {
+    if (!t) continue;
+    const tObj = t as unknown as Record<string, unknown>;
+    const duration = calculateDurationDays(
+      getField(tObj, 'date') as string | undefined,
+      getField(tObj, 'endDate') as string | undefined
+    );
+    const safeString = (val: unknown) => {
+      const str = String(val ?? '');
+      return `"${str.replace(/"/g, '""')}"`;
+    };
+    const row = [
+      getField(tObj, 'id') ?? '',
+      safeString(getField(tObj, 'title')),
+      getField(tObj, 'date') ?? '',
+      safeString(getField(tObj, 'location')),
+      getField(tObj, 'region') ?? '',
+      getField(tObj, 'status') ?? '',
+      duration,
+      getField(tObj, 'fixtureCount') ?? '',
+      getField(tObj, 'teamsCount') ?? ''
+    ];
+    csv += row.join(',') + '\n';
+  }
+
+  return csv;
 }

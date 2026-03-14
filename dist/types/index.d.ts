@@ -28,9 +28,12 @@ export interface TournamentSummary {
     id: number;
     title: string;
     date: string;
+    endDate?: string;
     location: string;
     region: string;
     status: string;
+    fixtureCount?: number;
+    teamsCount?: number;
 }
 export interface Squad {
     id: number;
