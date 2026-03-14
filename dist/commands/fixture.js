@@ -5,6 +5,177 @@ const commander_1 = require("commander");
 const helpers_js_1 = require("../lib/helpers.js");
 const formatters_js_1 = require("../lib/formatters.js");
 const utils_js_1 = require("../lib/utils.js");
+function formatFixturesByPitch(fixtures) {
+    const lines = [];
+    // Group fixtures by pitch
+    const byPitch = new Map();
+    for (const fixture of fixtures) {
+        const pitch = fixture.pitch || 'Unknown';
+        if (!byPitch.has(pitch)) {
+            byPitch.set(pitch, []);
+        }
+        byPitch.get(pitch).push(fixture);
+    }
+    // Sort pitches
+    const sortedPitches = Array.from(byPitch.keys()).sort();
+    for (const pitch of sortedPitches) {
+        lines.push(`\n## Pitch: ${pitch}\n`);
+        const pitchFixtures = byPitch.get(pitch).sort((a, b) => {
+            return (a.time || '').localeCompare(b.time || '');
+        });
+        // Define columns (without pitch)
+        const headers = ['Time', 'Category', 'Match', 'Team 1', 'Team 2', 'Umpires', 'Status'];
+        // Calculate column widths
+        const widths = headers.map((h, i) => {
+            const maxDataWidth = Math.max(...pitchFixtures.map(f => {
+                const values = [
+                    f.time || '-',
+                    f.category || '-',
+                    f.match || '-',
+                    f.team1 || '-',
+                    f.team2 || '-',
+                    f.umpires || '-',
+                    f.status || '-'
+                ];
+                return String(values[i]).length;
+            }));
+            return Math.max(h.length, maxDataWidth);
+        });
+        // Header row
+        const headerRow = headers.map((h, i) => h.toUpperCase().padEnd(widths[i])).join('  ');
+        lines.push(headerRow);
+        // Separator
+        lines.push(headers.map((_, i) => '-'.repeat(widths[i])).join('  '));
+        // Data rows
+        for (const fixture of pitchFixtures) {
+            const row = [
+                fixture.time || '-',
+                fixture.category || '-',
+                fixture.match || '-',
+                fixture.team1 || '-',
+                fixture.team2 || '-',
+                fixture.umpires || '-',
+                fixture.status || '-'
+            ].map((val, i) => String(val).padEnd(widths[i])).join('  ');
+            lines.push(row);
+        }
+    }
+    return lines.join('\n');
+}
+function formatFixturesByCategory(fixtures) {
+    const lines = [];
+    // Group fixtures by category
+    const byCategory = new Map();
+    for (const fixture of fixtures) {
+        const category = fixture.category || 'Uncategorized';
+        if (!byCategory.has(category)) {
+            byCategory.set(category, []);
+        }
+        byCategory.get(category).push(fixture);
+    }
+    // Sort categories
+    const sortedCategories = Array.from(byCategory.keys()).sort();
+    for (const category of sortedCategories) {
+        lines.push(`\n## Category: ${category}\n`);
+        const categoryFixtures = byCategory.get(category).sort((a, b) => {
+            // Sort by pitch first, then time
+            const pitchCompare = (a.pitch || '').localeCompare(b.pitch || '');
+            if (pitchCompare !== 0)
+                return pitchCompare;
+            return (a.time || '').localeCompare(b.time || '');
+        });
+        // Define columns
+        const headers = ['Time', 'Pitch', 'Match', 'Team 1', 'Team 2', 'Umpires', 'Status'];
+        // Calculate column widths
+        const widths = headers.map((h, i) => {
+            const maxDataWidth = Math.max(...categoryFixtures.map(f => {
+                const values = [
+                    f.time || '-',
+                    f.pitch || '-',
+                    f.match || '-',
+                    f.team1 || '-',
+                    f.team2 || '-',
+                    f.umpires || '-',
+                    f.status || '-'
+                ];
+                return String(values[i]).length;
+            }));
+            return Math.max(h.length, maxDataWidth);
+        });
+        // Header row
+        const headerRow = headers.map((h, i) => h.toUpperCase().padEnd(widths[i])).join('  ');
+        lines.push(headerRow);
+        // Separator
+        lines.push(headers.map((_, i) => '-'.repeat(widths[i])).join('  '));
+        // Data rows
+        for (const fixture of categoryFixtures) {
+            const row = [
+                fixture.time || '-',
+                fixture.pitch || '-',
+                fixture.match || '-',
+                fixture.team1 || '-',
+                fixture.team2 || '-',
+                fixture.umpires || '-',
+                fixture.status || '-'
+            ].map((val, i) => String(val).padEnd(widths[i])).join('  ');
+            lines.push(row);
+        }
+    }
+    return lines.join('\n');
+}
+function formatFixturesNext(fixtures) {
+    const lines = [];
+    // Filter to pending or live fixtures
+    const relevantFixtures = fixtures.filter(f => {
+        return f.status === 'pending' || f.status === 'live';
+    });
+    if (relevantFixtures.length === 0) {
+        return 'No upcoming or live fixtures found.';
+    }
+    // Sort by time
+    relevantFixtures.sort((a, b) => {
+        return (a.time || '').localeCompare(b.time || '');
+    });
+    // Define columns
+    const headers = ['Time', 'Pitch', 'Category', 'Match', 'Team 1', 'Team 2', 'Umpires', 'Status'];
+    // Calculate column widths
+    const widths = headers.map((h, i) => {
+        const maxDataWidth = Math.max(...relevantFixtures.map(f => {
+            const values = [
+                f.time || '-',
+                f.pitch || '-',
+                f.category || '-',
+                f.match || '-',
+                f.team1 || '-',
+                f.team2 || '-',
+                f.umpires || '-',
+                f.status || '-'
+            ];
+            return String(values[i]).length;
+        }));
+        return Math.max(h.length, maxDataWidth);
+    });
+    // Header row
+    const headerRow = headers.map((h, i) => h.toUpperCase().padEnd(widths[i])).join('  ');
+    lines.push(headerRow);
+    // Separator
+    lines.push(headers.map((_, i) => '-'.repeat(widths[i])).join('  '));
+    // Data rows
+    for (const fixture of relevantFixtures) {
+        const row = [
+            fixture.time || '-',
+            fixture.pitch || '-',
+            fixture.category || '-',
+            fixture.match || '-',
+            fixture.team1 || '-',
+            fixture.team2 || '-',
+            fixture.umpires || '-',
+            fixture.status || '-'
+        ].map((val, i) => String(val).padEnd(widths[i])).join('  ');
+        lines.push(row);
+    }
+    return lines.join('\n');
+}
 function createFixtureCommands() {
     const fixtureCmd = new commander_1.Command('fixture')
         .alias('f')
@@ -14,6 +185,7 @@ function createFixtureCommands() {
         .description('List all fixtures in a tournament')
         .option('-p, --pitch <pitch>', 'Filter by pitch')
         .option('-c, --category <category>', 'Filter by category')
+        .option('-r, --report <type>', 'Report type: by-pitch, by-category, next')
         .action(async (tournamentId, options) => {
         try {
             const { client } = await (0, helpers_js_1.getApiClient)();
@@ -32,7 +204,29 @@ function createFixtureCommands() {
                 return;
             }
             const opts = global.ppOpts;
-            console.log((0, formatters_js_1.formatOutput)(fixtures, { format: (0, helpers_js_1.assertOutputFormat)(opts.format) }));
+            const format = (0, helpers_js_1.assertOutputFormat)(opts.format);
+            // Use report formatting for table output
+            if (format === 'table' && options.report) {
+                let output;
+                switch (options.report) {
+                    case 'by-pitch':
+                        output = formatFixturesByPitch(fixtures);
+                        break;
+                    case 'by-category':
+                        output = formatFixturesByCategory(fixtures);
+                        break;
+                    case 'next':
+                        output = formatFixturesNext(fixtures);
+                        break;
+                    default:
+                        (0, utils_js_1.error)(`Unknown report type: ${options.report}. Use 'by-pitch', 'by-category', or 'next'.`);
+                        process.exit(1);
+                }
+                console.log(output);
+            }
+            else {
+                console.log((0, formatters_js_1.formatOutput)(fixtures, { format }));
+            }
         }
         catch (err) {
             const message = err instanceof Error ? err.message : 'Failed to list fixtures';
