@@ -66,7 +66,11 @@ export function createSquadCommands(): Command {
 
         const squad = await client.post<Squad>(`/api/tournaments/${tournamentId}/squads`, body);
 
-        success(`Created squad "${squad.name}"`);
+        // Handle API naming conventions - API returns teamName
+        const squadData = squad as unknown as Record<string, unknown>;
+        const name = (squadData.teamName as string) || (squadData.Name as string) || (squadData.name as string) || options.name;
+
+        success(`Created squad "${name}"`);
         info(`ID: ${squad.id}`);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to create squad';

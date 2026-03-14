@@ -60,7 +60,10 @@ function createSquadCommands() {
                 clubId: options.clubId ? parseInt(options.clubId, 10) : undefined
             };
             const squad = await client.post(`/api/tournaments/${tournamentId}/squads`, body);
-            (0, utils_js_1.success)(`Created squad "${squad.name}"`);
+            // Handle API naming conventions - API returns teamName
+            const squadData = squad;
+            const name = squadData.teamName || squadData.Name || squadData.name || options.name;
+            (0, utils_js_1.success)(`Created squad "${name}"`);
             (0, utils_js_1.info)(`ID: ${squad.id}`);
         }
         catch (err) {

@@ -106,19 +106,22 @@ function createFixtureCommands() {
     fixtureCmd
         .command('score <tournament-id> <fixture-id>')
         .description('Update fixture score')
-        .requiredOption('--home <score>', 'Home team score')
-        .requiredOption('--away <score>', 'Away team score')
+        .requiredOption('--home-points <points>', 'Home team points')
+        .requiredOption('--away-points <points>', 'Away team points')
         .option('--home-goals <goals>', 'Home team goals')
         .option('--away-goals <goals>', 'Away team goals')
         .action(async (tournamentId, fixtureId, options) => {
         try {
             const { client } = await (0, helpers_js_1.getApiClient)();
+            // API uses goals1/points1 and goals2/points2 field names
             const body = {
-                homeScore: parseInt(options.home, 10),
-                awayScore: parseInt(options.away, 10),
-                homeGoals: options.homeGoals ? parseInt(options.homeGoals, 10) : undefined,
-                awayGoals: options.awayGoals ? parseInt(options.awayGoals, 10) : undefined
+                points1: parseInt(options.homePoints, 10),
+                points2: parseInt(options.awayPoints, 10)
             };
+            if (options.homeGoals)
+                body.goals1 = parseInt(options.homeGoals, 10);
+            if (options.awayGoals)
+                body.goals2 = parseInt(options.awayGoals, 10);
             await client.post(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}/score`, body);
             (0, utils_js_1.success)(`Updated score for fixture ${fixtureId}`);
         }
@@ -187,7 +190,7 @@ function createFixtureCommands() {
         .action(async (tournamentId, fixtureId) => {
         try {
             const { client } = await (0, helpers_js_1.getApiClient)();
-            const cards = await client.get(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}/carded-players`);
+            const cards = await client.get(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}/cards`);
             const opts = global.ppOpts;
             console.log((0, formatters_js_1.formatOutput)(cards, { format: (0, helpers_js_1.assertOutputFormat)(opts.format) }));
         }
@@ -209,9 +212,9 @@ function createFixtureCommands() {
             const body = {
                 playerName: options.player,
                 color: options.color,
-                reason: options.reason
+                reason: options.reason || 'Unsporting behavior'
             };
-            await client.post(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}/carded`, body);
+            await client.post(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}/cards`, body);
             (0, utils_js_1.success)(`Issued ${options.color} card to ${options.player}`);
         }
         catch (err) {
@@ -226,7 +229,7 @@ function createFixtureCommands() {
         .action(async (tournamentId, fixtureId, cardId) => {
         try {
             const { client } = await (0, helpers_js_1.getApiClient)();
-            await client.delete(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}/carded/${cardId}`);
+            await client.delete(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}/cards/${cardId}`);
             (0, utils_js_1.success)(`Deleted card ${cardId}`);
         }
         catch (err) {

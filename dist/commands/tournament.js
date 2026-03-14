@@ -87,10 +87,14 @@ function createTournamentCommands() {
                 lossPoints: parseInt(options.lossPoints, 10)
             };
             const tournament = await client.post('/api/tournaments', body);
-            (0, utils_js_1.success)(`Created tournament "${tournament.title}"`);
+            // Handle both API naming conventions (Title/title, Date/date)
+            const title = tournament.Title || tournament.title;
+            const date = tournament.Date || tournament.date;
+            const location = tournament.Location || tournament.location;
+            (0, utils_js_1.success)(`Created tournament "${title}"`);
             (0, utils_js_1.info)(`ID: ${tournament.id}`);
-            (0, utils_js_1.info)(`Date: ${tournament.date}`);
-            (0, utils_js_1.info)(`Location: ${tournament.location}`);
+            (0, utils_js_1.info)(`Date: ${date}`);
+            (0, utils_js_1.info)(`Location: ${location}`);
         }
         catch (err) {
             const message = err instanceof Error ? err.message : 'Failed to create tournament';
