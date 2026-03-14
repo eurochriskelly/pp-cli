@@ -282,6 +282,7 @@ export function createFixtureCommands(): Command {
       try {
         const { client } = await getApiClient();
         const fixtureId = await resolveFixtureId(client, tournamentId, fixtureRef);
+        
         await client.post(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}/start`);
 
         success(`Started fixture ${fixtureRef} (${fixtureId})`);
@@ -295,8 +296,8 @@ export function createFixtureCommands(): Command {
   fixtureCmd
     .command('score <tournament-id> <fixture-id>')
     .description('Update fixture score')
-    .requiredOption('--home <score>', 'Home team score')
-    .requiredOption('--away <score>', 'Away team score')
+    .requiredOption('--home-points <points>', 'Home team points')
+    .requiredOption('--away-points <points>', 'Away team points')
     .option('--home-goals <goals>', 'Home team goals')
     .option('--away-goals <goals>', 'Away team goals')
     .action(async (tournamentId, fixtureRef, options) => {
@@ -304,12 +305,14 @@ export function createFixtureCommands(): Command {
         const { client } = await getApiClient();
         const fixtureId = await resolveFixtureId(client, tournamentId, fixtureRef);
 
-        const body = {
-          homeScore: parseInt(options.home, 10),
-          awayScore: parseInt(options.away, 10),
-          homeGoals: options.homeGoals ? parseInt(options.homeGoals, 10) : undefined,
-          awayGoals: options.awayGoals ? parseInt(options.awayGoals, 10) : undefined
+        // API uses goals1/points1 and goals2/points2 field names
+        const body: Record<string, number> = {
+          points1: parseInt(options.homePoints, 10),
+          points2: parseInt(options.awayPoints, 10)
         };
+        
+        if (options.homeGoals) body.goals1 = parseInt(options.homeGoals, 10);
+        if (options.awayGoals) body.goals2 = parseInt(options.awayGoals, 10);
 
         await client.post(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}/score`, body);
 
@@ -328,6 +331,7 @@ export function createFixtureCommands(): Command {
       try {
         const { client } = await getApiClient();
         const fixtureId = await resolveFixtureId(client, tournamentId, fixtureRef);
+        
         await client.post(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}/end`);
 
         success(`Ended fixture ${fixtureRef} (${fixtureId})`);
@@ -387,7 +391,7 @@ export function createFixtureCommands(): Command {
       try {
         const { client } = await getApiClient();
         const fixtureId = await resolveFixtureId(client, tournamentId, fixtureRef);
-        const cards = await client.get(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}/carded-players`);
+        const cards = await client.get(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}/cards`);
 
         const opts = (global as unknown as { ppOpts: GlobalOptions }).ppOpts;
         console.log(formatOutput(cards, { format: assertOutputFormat(opts.format) }));
@@ -412,10 +416,10 @@ export function createFixtureCommands(): Command {
         const body = {
           playerName: options.player,
           color: options.color,
-          reason: options.reason
+          reason: options.reason || 'Unsporting behavior'
         };
 
-        await client.post(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}/carded`, body);
+        await client.post(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}/cards`, body);
 
         success(`Issued ${options.color} card to ${options.player}`);
       } catch (err) {
@@ -432,7 +436,7 @@ export function createFixtureCommands(): Command {
       try {
         const { client } = await getApiClient();
         const fixtureId = await resolveFixtureId(client, tournamentId, fixtureRef);
-        await client.delete(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}/carded/${cardId}`);
+        await client.delete(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}/cards/${cardId}`);
 
         success(`Deleted card ${cardId}`);
       } catch (err) {

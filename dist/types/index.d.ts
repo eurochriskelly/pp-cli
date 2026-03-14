@@ -131,4 +131,39 @@ export interface GlobalOptions {
     verbose?: boolean;
     apiUrl?: string;
 }
+export interface TeamStanding {
+    category: string;
+    grp: number;
+    team: string;
+    tournamentId: number;
+    MatchesPlayed: string;
+    Wins: string;
+    Draws: string;
+    Losses: string;
+    PointsFrom: string | null;
+    PointsDifference: string | null;
+    TotalPoints: string;
+    h2hPlayed: number;
+    h2hWins: number;
+    h2hDraws: number;
+    h2hLosses: number;
+    h2hPoints: number;
+    h2hScoreFor: number;
+    h2hScoreAgainst: number;
+    h2hDiff: number;
+    position: number;
+    jointPosition: boolean;
+    h2hStats: {
+        played: number;
+        wins: number;
+        draws: number;
+        losses: number;
+        points: number;
+        for: number;
+        against: number;
+        diff: number;
+    };
+}
+export type DivisionStandings = Record<string, TeamStanding[]>;
+export type TournamentStandings = Record<string, DivisionStandings>;
 //# sourceMappingURL=index.d.ts.map
