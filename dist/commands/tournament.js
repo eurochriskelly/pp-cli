@@ -245,10 +245,10 @@ function createTournamentCommands() {
         }
     });
     tournamentCmd
-        .command('standings <id>')
+        .command('standings <id> [divisionGroup]')
         .description('Get tournament group standings')
         .option('-g, --group <group>', 'Group number')
-        .action(async (id, options) => {
+        .action(async (id, divisionGroup, options) => {
         try {
             const { client } = await (0, helpers_js_1.getApiClient)();
             let path = `/api/tournaments/${id}/group-standings`;
@@ -257,8 +257,33 @@ function createTournamentCommands() {
                 path = `/api/tournaments/${id}/group-standings?group=${options.group}`;
             }
             const standings = await client.get(path);
+            // Parse division/group filter if provided (e.g., "HURLING/1" or "MENS_SENIOR/Gp.1")
+            let divisionFilter;
+            let groupFilter;
+            if (divisionGroup) {
+                const parts = divisionGroup.split('/');
+                if (parts.length === 2) {
+                    divisionFilter = parts[0];
+                    // Normalize group number (remove "Gp." prefix if present)
+                    groupFilter = parts[1].replace(/^Gp\.?/i, '');
+                }
+            }
             const opts = global.ppOpts;
-            console.log((0, formatters_js_1.formatOutput)(standings, { format: (0, helpers_js_1.assertOutputFormat)(opts.format) }));
+            const format = (0, helpers_js_1.assertOutputFormat)(opts.format);
+            // Use custom formatter for table view, standard formatter for others
+            if (format === 'table') {
+                if (divisionFilter && groupFilter) {
+                    // Show detailed view with standings + matches
+                    const output = await (0, formatters_js_1.formatStandingsWithMatches)(standings, id, divisionFilter, groupFilter, client);
+                    console.log(output);
+                }
+                else {
+                    console.log((0, formatters_js_1.formatStandings)(standings));
+                }
+            }
+            else {
+                console.log((0, formatters_js_1.formatOutput)(standings, { format }));
+            }
         }
         catch (err) {
             const message = err instanceof Error ? err.message : 'Failed to get standings';

@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import { getCurrentSession } from '../lib/config.js';
 import { getApiClient, assertOutputFormat } from '../lib/helpers.js';
-import { formatOutput } from '../lib/formatters.js';
+import { formatOutput, formatStandings, formatStandingsWithMatches } from '../lib/formatters.js';
 import { success, error, info } from '../lib/utils.js';
 import type { GlobalOptions, Tournament, TournamentSummary } from '../types/index.js';
 
@@ -255,10 +255,10 @@ export function createTournamentCommands(): Command {
     });
 
   tournamentCmd
-    .command('standings <id>')
+    .command('standings <id> [divisionGroup]')
     .description('Get tournament group standings')
     .option('-g, --group <group>', 'Group number')
-    .action(async (id, options) => {
+    .action(async (id, divisionGroup, options) => {
       try {
         const { client } = await getApiClient();
         
@@ -269,9 +269,40 @@ export function createTournamentCommands(): Command {
         }
         
         const standings = await client.get(path);
+        
+        // Parse division/group filter if provided (e.g., "HURLING/1" or "MENS_SENIOR/Gp.1")
+        let divisionFilter: string | undefined;
+        let groupFilter: string | undefined;
+        if (divisionGroup) {
+          const parts = divisionGroup.split('/');
+          if (parts.length === 2) {
+            divisionFilter = parts[0];
+            // Normalize group number (remove "Gp." prefix if present)
+            groupFilter = parts[1].replace(/^Gp\.?/i, '');
+          }
+        }
 
         const opts = (global as unknown as { ppOpts: GlobalOptions }).ppOpts;
-        console.log(formatOutput(standings, { format: assertOutputFormat(opts.format) }));
+        const format = assertOutputFormat(opts.format);
+        
+        // Use custom formatter for table view, standard formatter for others
+        if (format === 'table') {
+          if (divisionFilter && groupFilter) {
+            // Show detailed view with standings + matches
+            const output = await formatStandingsWithMatches(
+              standings as import('../types/index.js').TournamentStandings,
+              id,
+              divisionFilter,
+              groupFilter,
+              client
+            );
+            console.log(output);
+          } else {
+            console.log(formatStandings(standings as import('../types/index.js').TournamentStandings));
+          }
+        } else {
+          console.log(formatOutput(standings, { format }));
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to get standings';
         error(message);
