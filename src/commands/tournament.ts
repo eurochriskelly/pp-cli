@@ -96,10 +96,15 @@ export function createTournamentCommands(): Command {
 
         const tournament = await client.post<Tournament>('/api/tournaments', body);
 
-        success(`Created tournament "${tournament.title}"`);
+        // Handle both API naming conventions (Title/title, Date/date)
+        const title = (tournament as unknown as Record<string, string>).Title || tournament.title;
+        const date = (tournament as unknown as Record<string, string>).Date || tournament.date;
+        const location = (tournament as unknown as Record<string, string>).Location || tournament.location;
+
+        success(`Created tournament "${title}"`);
         info(`ID: ${tournament.id}`);
-        info(`Date: ${tournament.date}`);
-        info(`Location: ${tournament.location}`);
+        info(`Date: ${date}`);
+        info(`Location: ${location}`);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to create tournament';
         error(message);
