@@ -1,0 +1,11 @@
+TIME	MATCH	CATEGORY	PITCH	TEAM1	STAGE	TEAM2	UMPIRES	DURATION
+09:00	M.1	Senior	Pitch 1	Team Alpha	Gp.1	Team Beta	Team Charlie	30
+09:30	M.2	Senior	Pitch 1	Team Gamma	Gp.1	Team Delta	Team Alpha	30
+10:00	M.3	Senior	Pitch 2	Team Echo	Gp.2	Team Foxtrot	Team Golf	30
+10:30	M.4	Senior	Pitch 2	Team Golf	Gp.2	Team Hotel	Team Echo	30
+11:00	M.5	Senior	Pitch 3	Team India	Gp.3	Team Juliet	Team Kilo	30
+11:30	M.6	Senior	Pitch 3	Team Kilo	Gp.3	Team Lima	Team India	30
+12:00	M.7	Senior	Pitch 1	Team Mike	Gp.4	Team November	Team Oscar	30
+12:30	M.8	Senior	Pitch 1	Team Oscar	Gp.4	Team Papa	Team Mike	30
+13:00	M.9	Senior	Pitch 2	Team Quebec	Gp.5	Team Romeo	Team Sierra	30
+13:30	M.10	Senior	Pitch 2	Team Sierra	Gp.5	Team Tango	Team Quebec	30
