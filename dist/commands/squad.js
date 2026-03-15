@@ -55,7 +55,7 @@ function createSquadCommands() {
         try {
             const { client } = await (0, helpers_js_1.getApiClient)();
             const body = {
-                name: options.name,
+                teamName: options.name,
                 category: options.category,
                 clubId: options.clubId ? parseInt(options.clubId, 10) : undefined
             };
