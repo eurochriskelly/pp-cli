@@ -15,6 +15,7 @@ function createTournamentCommands() {
         .description('List all tournaments')
         .option('-s, --status <status>', 'Filter by status (draft, published, started, closed)')
         .option('-r, --region <region>', 'Filter by region')
+        .option('--include-old-closed', 'Include closed/archived tournaments older than 1 month')
         .action(async (options) => {
         try {
             const { client } = await (0, helpers_js_1.getApiClient)();
@@ -22,13 +23,23 @@ function createTournamentCommands() {
             if (options.status) {
                 path = `/api/tournaments/by-status/${options.status}`;
             }
-            const tournaments = await client.get(path);
+            const response = await client.get(path);
+            // Handle both direct array responses and wrapped { data: [...] } responses
+            const tournaments = Array.isArray(response)
+                ? response
+                : (response && typeof response === 'object' && 'data' in response && Array.isArray(response.data))
+                    ? response.data
+                    : [];
             if (tournaments.length === 0) {
                 (0, utils_js_1.info)('No tournaments found');
                 return;
             }
-            const opts = global.ppOpts;
-            console.log((0, formatters_js_1.formatOutput)(tournaments, { format: (0, helpers_js_1.assertOutputFormat)(opts.format) }));
+            const globalOpts = global.ppOpts;
+            const format = globalOpts?.format ?? 'table';
+            console.log((0, formatters_js_1.formatTournamentList)(tournaments, {
+                format: (0, helpers_js_1.assertOutputFormat)(format),
+                includeOldClosed: options.includeOldClosed
+            }));
         }
         catch (err) {
             const message = err instanceof Error ? err.message : 'Failed to list tournaments';

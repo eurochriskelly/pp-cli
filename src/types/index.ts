@@ -32,9 +32,13 @@ export interface TournamentSummary {
   id: number;
   title: string;
   date: string;
+  endDate?: string;
   location: string;
   region: string;
   status: string;
+  // Optional count fields that may be returned by API
+  fixtureCount?: number;
+  teamsCount?: number;
 }
 
 // Squad types
