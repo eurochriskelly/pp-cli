@@ -17,9 +17,9 @@ export function generateConfirmationCode(): string {
 
 /**
  * Store a confirmation code for a tournament
- * Returns the generated code
+ * Returns the generated code (or the provided code if given)
  */
-export async function storeConfirmationCode(tournamentId: string): Promise<string> {
+export async function storeConfirmationCode(tournamentId: string, code?: string): Promise<string> {
   const session = await loadSession();
   
   // Initialize confirmationCodes if needed
@@ -30,18 +30,18 @@ export async function storeConfirmationCode(tournamentId: string): Promise<strin
   // Clean up expired codes
   await cleanupExpiredCodes(session);
   
-  const code = generateConfirmationCode();
+  const finalCode = code || generateConfirmationCode();
   const now = Date.now();
   
   session.confirmationCodes[tournamentId] = {
-    code,
+    code: finalCode,
     createdAt: now,
     expiresAt: now + CODE_EXPIRY_MS
   };
   
   await saveSession(session);
   
-  return code;
+  return finalCode;
 }
 
 /**
