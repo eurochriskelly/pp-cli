@@ -37,6 +37,7 @@ exports.formatOutput = formatOutput;
 exports.formatStandings = formatStandings;
 exports.formatStandingsWithMatches = formatStandingsWithMatches;
 exports.formatTournamentList = formatTournamentList;
+exports.formatSeriesList = formatSeriesList;
 const yaml = __importStar(require("js-yaml"));
 function formatOutput(data, options) {
     switch (options.format) {
@@ -503,6 +504,112 @@ function formatTournamentListCsv(tournaments) {
             duration,
             getField(tObj, 'fixtureCount') ?? '',
             getField(tObj, 'teamsCount') ?? ''
+        ];
+        csv += row.join(',') + '\n';
+    }
+    return csv;
+}
+function formatSeriesList(series, options) {
+    const { format, championships } = options;
+    if (!Array.isArray(series) || series.length === 0) {
+        return 'No series found';
+    }
+    switch (format) {
+        case 'json':
+            return JSON.stringify(series, null, 2);
+        case 'yaml':
+            return yaml.dump(series);
+        case 'csv':
+            return formatSeriesListCsv(series);
+        case 'table':
+        default:
+            return formatSeriesListTable(series, championships);
+    }
+}
+function formatSeriesListTable(series, championships) {
+    // Defensive check
+    if (!Array.isArray(series) || series.length === 0) {
+        return 'No series found';
+    }
+    // Build a map of series ID to championships
+    const seriesChampionships = new Map();
+    if (championships) {
+        for (const champ of championships) {
+            const existing = seriesChampionships.get(champ.seriesId) || [];
+            existing.push(champ);
+            seriesChampionships.set(champ.seriesId, existing);
+        }
+    }
+    // Define columns: ID, Name, Sport, CHM (Championship count), DSS, PPT, RS, Status
+    const headers = ['ID', 'NAME', 'SPORT', 'CHM', 'DSS', 'PPT', 'RS', 'STAT'];
+    // Calculate column widths
+    const widths = headers.map(h => h.length);
+    const rows = series.map(s => {
+        const champs = seriesChampionships.get(s.id) || [];
+        const champCount = champs.length;
+        const champIds = champs.map(c => c.id).join(',');
+        const champDisplay = champCount > 0 ? `${champCount} (${champIds})` : '-';
+        const row = [
+            String(s.id ?? '-'),
+            String(s.name ?? '-'),
+            String(s.sport ?? '-'),
+            champDisplay,
+            String(s.defaultSquadSize ?? s.squadSize ?? '-'),
+            String(s.defaultPlayersPerTeam ?? '-'),
+            s.rulesetId !== null && s.rulesetId !== undefined ? String(s.rulesetId) : '-',
+            String(s.status ?? '-')
+        ];
+        row.forEach((cell, i) => {
+            widths[i] = Math.max(widths[i], cell.length);
+        });
+        return row;
+    });
+    // Build output
+    const lines = [];
+    // Header row
+    const headerRow = headers.map((h, i) => h.padEnd(widths[i])).join('  ');
+    lines.push(headerRow);
+    // Separator line
+    const separator = headers.map((_, i) => '-'.repeat(widths[i])).join('  ');
+    lines.push(separator);
+    // Data rows
+    for (const row of rows) {
+        const line = row.map((cell, i) => cell.padEnd(widths[i])).join('  ');
+        lines.push(line);
+    }
+    // Add legend
+    lines.push('');
+    lines.push('Legend:');
+    lines.push('  CHM  = Championships (count and IDs)');
+    lines.push('  DSS  = Default Squad Size');
+    lines.push('  PPT  = Players Per Team');
+    lines.push('  RS   = Ruleset ID');
+    lines.push('  STAT = Status');
+    return lines.join('\n');
+}
+function formatSeriesListCsv(series) {
+    // Defensive check
+    if (!Array.isArray(series) || series.length === 0) {
+        return 'id,name,description,sport,defaultSquadSize,defaultPlayersPerTeam,rulesetId,status';
+    }
+    const headers = ['id', 'name', 'description', 'sport', 'defaultSquadSize', 'defaultPlayersPerTeam', 'rulesetId', 'status'];
+    let csv = headers.join(',') + '\n';
+    for (const s of series) {
+        if (!s)
+            continue;
+        const safeString = (val) => {
+            const str = String(val ?? '');
+            return `"${str.replace(/"/g, '""')}"`;
+        };
+        const row = [
+            s.id ?? '',
+            safeString(s.name),
+            safeString(s.description),
+            safeString(s.sport),
+            s.defaultSquadSize ?? s.squadSize ?? '',
+            s.defaultPlayersPerTeam ?? '',
+            s.rulesetId ?? '',
+            safeString(s.status)
         ];
         csv += row.join(',') + '\n';
     }

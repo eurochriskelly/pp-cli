@@ -1,4 +1,4 @@
-import type { OutputFormat, TournamentStandings, TournamentSummary } from '../types/index.js';
+import type { Championship, OutputFormat, Series, TournamentStandings, TournamentSummary } from '../types/index.js';
 export interface FormatterOptions {
     format: OutputFormat;
     headers?: string[];
@@ -13,4 +13,9 @@ export interface TournamentListOptions {
     includeOldClosed?: boolean;
 }
 export declare function formatTournamentList(tournaments: TournamentSummary[], options: TournamentListOptions): string;
+export interface SeriesListOptions {
+    format: OutputFormat;
+    championships?: Championship[];
+}
+export declare function formatSeriesList(series: Series[], options: SeriesListOptions): string;
 //# sourceMappingURL=formatters.d.ts.map

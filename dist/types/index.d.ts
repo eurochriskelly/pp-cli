@@ -78,8 +78,14 @@ export interface Championship {
 export interface Series {
     id: number;
     name: string;
+    description?: string;
     sport?: string;
+    defaultSquadSize?: number;
+    defaultPlayersPerTeam?: number;
+    rulesetId?: number | null;
+    status?: string;
     squadSize?: number;
+    championshipIds?: number[];
 }
 export interface Entrant {
     id: number;

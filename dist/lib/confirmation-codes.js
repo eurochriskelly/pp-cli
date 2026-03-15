@@ -19,9 +19,9 @@ function generateConfirmationCode() {
 }
 /**
  * Store a confirmation code for a tournament
- * Returns the generated code
+ * Returns the generated code (or the provided code if given)
  */
-async function storeConfirmationCode(tournamentId) {
+async function storeConfirmationCode(tournamentId, code) {
     const session = await (0, config_js_1.loadSession)();
     // Initialize confirmationCodes if needed
     if (!session.confirmationCodes) {
@@ -29,15 +29,15 @@ async function storeConfirmationCode(tournamentId) {
     }
     // Clean up expired codes
     await cleanupExpiredCodes(session);
-    const code = generateConfirmationCode();
+    const finalCode = code || generateConfirmationCode();
     const now = Date.now();
     session.confirmationCodes[tournamentId] = {
-        code,
+        code: finalCode,
         createdAt: now,
         expiresAt: now + CODE_EXPIRY_MS
     };
     await (0, config_js_1.saveSession)(session);
-    return code;
+    return finalCode;
 }
 /**
  * Verify a confirmation code for a tournament

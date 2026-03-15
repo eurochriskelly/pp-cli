@@ -161,73 +161,168 @@ function createTournamentCommands() {
         }
     });
     tournamentCmd
-        .command('delete <id>')
-        .description('Delete a tournament with confirmation')
+        .command('delete <ids>')
+        .description('Delete tournament(s) with confirmation (accepts single ID or comma-separated list)')
         .option('--confirmation-code <code>', 'Confirmation code from preview phase')
-        .action(async (id, options) => {
+        .action(async (ids, options) => {
         try {
             const { client } = await (0, helpers_js_1.getApiClient)();
+            // Parse IDs (support both single ID and comma-separated list)
+            const idList = ids.split(',').map((id) => id.trim()).filter(Boolean);
+            if (idList.length === 0) {
+                (0, utils_js_1.error)('No valid tournament IDs provided');
+                process.exit(1);
+            }
             // Check if this is a confirmation phase
             if (options.confirmationCode) {
                 // Phase 2: Execute deletion with confirmation code
-                const isValid = await (0, confirmation_codes_js_1.verifyConfirmationCode)(id, options.confirmationCode);
-                if (!isValid) {
-                    (0, utils_js_1.error)('Invalid or expired confirmation code. Please run without --confirmation-code to generate a new one.');
+                // Verify confirmation code for all tournaments (sequential)
+                for (const id of idList) {
+                    const isValid = await (0, confirmation_codes_js_1.verifyConfirmationCode)(id, options.confirmationCode);
+                    if (!isValid) {
+                        (0, utils_js_1.error)('Invalid or expired confirmation code. Please run without --confirmation-code to generate a new one.');
+                        process.exit(1);
+                    }
+                }
+                // Execute deletion for all tournaments (sequential)
+                const deleteResults = [];
+                for (const id of idList) {
+                    try {
+                        await client.delete(`/api/tournaments/${id}`);
+                        deleteResults.push({ id, status: 'fulfilled' });
+                    }
+                    catch (err) {
+                        deleteResults.push({ id, status: 'rejected', reason: err });
+                    }
+                }
+                // Clear all confirmation codes (sequential)
+                for (const id of idList) {
+                    await (0, confirmation_codes_js_1.clearConfirmationCode)(id);
+                }
+                // Report results
+                const successful = [];
+                const failed = [];
+                deleteResults.forEach((result, index) => {
+                    const id = idList[index];
+                    if (result.status === 'fulfilled') {
+                        successful.push(id);
+                    }
+                    else {
+                        const reason = result.reason instanceof Error ? result.reason.message : 'Unknown error';
+                        failed.push({ id, reason });
+                    }
+                });
+                if (successful.length > 0) {
+                    (0, utils_js_1.success)(`Deleted ${successful.length} tournament(s): ${successful.join(', ')}`);
+                }
+                if (failed.length > 0) {
+                    failed.forEach(({ id, reason }) => {
+                        (0, utils_js_1.error)(`Failed to delete tournament ${id}: ${reason}`);
+                    });
                     process.exit(1);
                 }
-                // Execute the deletion
-                await client.delete(`/api/tournaments/${id}`);
-                // Clear the confirmation code immediately
-                await (0, confirmation_codes_js_1.clearConfirmationCode)(id);
-                (0, utils_js_1.success)(`Deleted tournament ${id}`);
                 return;
             }
-            // Phase 1: Show deletion preview and generate confirmation code
-            // Fetch tournament details
-            const tournament = await client.get(`/api/tournaments/${id}`);
-            // Fetch all related data for this tournament
-            const [fixtures, squads] = await Promise.all([
-                client.get(`/api/tournaments/${id}/fixtures`).catch(() => []),
-                client.get(`/api/tournaments/${id}/squads`).catch(() => [])
-            ]);
-            // Count players
-            const playerCount = squads.reduce((total, squad) => {
-                return total + (squad.players?.length || 0);
-            }, 0);
-            // Count cards across all fixtures
-            let cardCount = 0;
-            for (const fixture of fixtures) {
+            // Phase 1: Show deletion preview and generate confirmation code for all tournaments
+            const tournamentPreviews = [];
+            for (const id of idList) {
                 try {
-                    const cards = await client.get(`/api/tournaments/${id}/fixtures/${fixture.id}/cards`);
-                    cardCount += cards.length;
+                    const tournament = await client.get(`/api/tournaments/${id}`);
+                    const fixtures = await client.get(`/api/tournaments/${id}/fixtures`).catch(() => []);
+                    const squads = await client.get(`/api/tournaments/${id}/squads`).catch(() => []);
+                    // Count players
+                    const playerCount = squads.reduce((total, squad) => {
+                        return total + (squad.players?.length || 0);
+                    }, 0);
+                    // Count cards across all fixtures
+                    let cardCount = 0;
+                    for (const fixture of fixtures) {
+                        try {
+                            const cards = await client.get(`/api/tournaments/${id}/fixtures/${fixture.id}/cards`);
+                            cardCount += cards.length;
+                        }
+                        catch {
+                            // Skip fixtures that don't have cards
+                        }
+                    }
+                    tournamentPreviews.push({
+                        id,
+                        tournament,
+                        fixtures: fixtures.length,
+                        squads: squads.length,
+                        players: playerCount,
+                        cards: cardCount,
+                        error: null
+                    });
                 }
-                catch {
-                    // Skip fixtures that don't have cards
+                catch (err) {
+                    tournamentPreviews.push({
+                        id,
+                        tournament: null,
+                        fixtures: 0,
+                        squads: 0,
+                        players: 0,
+                        cards: 0,
+                        error: err instanceof Error ? err.message : 'Failed to fetch tournament'
+                    });
                 }
             }
-            // Generate confirmation code
-            const confirmationCode = await (0, confirmation_codes_js_1.storeConfirmationCode)(id);
+            // Check for any fetch errors
+            const fetchErrors = tournamentPreviews.filter(p => p.error);
+            if (fetchErrors.length > 0) {
+                fetchErrors.forEach(p => {
+                    (0, utils_js_1.error)(`Failed to fetch tournament ${p.id}: ${p.error}`);
+                });
+                if (fetchErrors.length === idList.length) {
+                    process.exit(1);
+                }
+            }
+            // Generate a single confirmation code for all tournaments
+            const confirmationCode = (0, confirmation_codes_js_1.generateConfirmationCode)();
+            // Store the same code for all tournaments
+            for (const id of idList) {
+                await (0, confirmation_codes_js_1.storeConfirmationCode)(id, confirmationCode);
+            }
             // Display deletion preview
             console.log('\n═══════════════════════════════════════════════════════════════');
             console.log('  ⚠️  TOURNAMENT DELETION PREVIEW  ⚠️');
             console.log('═══════════════════════════════════════════════════════════════\n');
-            console.log('Tournament to be deleted:');
-            console.log(`  Name:      ${tournament.title}`);
-            console.log(`  Date:      ${tournament.date}`);
-            console.log(`  Location:  ${tournament.location}`);
-            console.log(`  Region:    ${tournament.region}`);
-            console.log(`  Status:    ${tournament.status}`);
-            console.log(`  ID:        ${tournament.id}\n`);
-            console.log('The following data will be PERMANENTLY deleted:\n');
-            console.log(`  📊 Fixtures:  ${fixtures.length}`);
-            console.log(`  👥 Squads:    ${squads.length}`);
-            console.log(`  🏃 Players:   ${playerCount}`);
-            console.log(`  🟨 Cards:     ${cardCount}\n`);
+            const validPreviews = tournamentPreviews.filter(p => !p.error);
+            console.log(`${validPreviews.length} tournament(s) will be deleted:\n`);
+            let totalFixtures = 0;
+            let totalSquads = 0;
+            let totalPlayers = 0;
+            let totalCards = 0;
+            validPreviews.forEach((preview, index) => {
+                // Handle both API naming conventions (Title/title, Date/date, Location/location)
+                const t = preview.tournament;
+                const title = t.Title || t.title || 'N/A';
+                const date = t.Date || t.date || 'N/A';
+                const location = t.Location || t.location || 'N/A';
+                console.log(`  ${index + 1}. ${title}`);
+                console.log(`     Date:      ${date}`);
+                console.log(`     Location:  ${location}`);
+                console.log(`     Region:    ${preview.tournament.region}`);
+                console.log(`     Status:    ${preview.tournament.status}`);
+                console.log(`     ID:        ${preview.id}`);
+                console.log(`     Data:      ${preview.fixtures} fixtures, ${preview.squads} squads, ${preview.players} players, ${preview.cards} cards\n`);
+                totalFixtures += preview.fixtures;
+                totalSquads += preview.squads;
+                totalPlayers += preview.players;
+                totalCards += preview.cards;
+            });
+            console.log('═══════════════════════════════════════════════════════════════');
+            console.log('  TOTAL DATA TO BE PERMANENTLY DELETED');
+            console.log('═══════════════════════════════════════════════════════════════\n');
+            console.log(`  📊 Fixtures:  ${totalFixtures}`);
+            console.log(`  👥 Squads:    ${totalSquads}`);
+            console.log(`  🏃 Players:   ${totalPlayers}`);
+            console.log(`  🟨 Cards:     ${totalCards}\n`);
             console.log('═══════════════════════════════════════════════════════════════');
             console.log('  ⚠️  WARNING: THIS ACTION IS IRREVERSIBLE  ⚠️');
             console.log('═══════════════════════════════════════════════════════════════\n');
             console.log(`To confirm deletion, run:\n`);
-            console.log(`  ppx tournament delete ${id} --confirmation-code=${confirmationCode}\n`);
+            console.log(`  ppx tournament delete ${ids} --confirmation-code=${confirmationCode}\n`);
             console.log(`This confirmation code is valid for 60 seconds.\n`);
             (0, utils_js_1.info)('No data has been deleted yet. Review the information above before proceeding.');
         }

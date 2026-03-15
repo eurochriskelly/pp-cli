@@ -8,9 +8,9 @@
 export declare function generateConfirmationCode(): string;
 /**
  * Store a confirmation code for a tournament
- * Returns the generated code
+ * Returns the generated code (or the provided code if given)
  */
-export declare function storeConfirmationCode(tournamentId: string): Promise<string>;
+export declare function storeConfirmationCode(tournamentId: string, code?: string): Promise<string>;
 /**
  * Verify a confirmation code for a tournament
  * Returns true if valid, false otherwise
