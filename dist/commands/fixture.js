@@ -5,6 +5,7 @@ const commander_1 = require("commander");
 const helpers_js_1 = require("../lib/helpers.js");
 const formatters_js_1 = require("../lib/formatters.js");
 const utils_js_1 = require("../lib/utils.js");
+// Report formatting functions from lane2
 function formatFixturesByPitch(fixtures) {
     const lines = [];
     // Group fixtures by pitch
@@ -176,6 +177,82 @@ function formatFixturesNext(fixtures) {
     }
     return lines.join('\n');
 }
+// Helper functions from main
+function formatStage(stage, groupNumber) {
+    if (!stage)
+        return '-';
+    // Group stage
+    if (stage === 'group') {
+        return `Gp.${groupNumber ?? 1}`;
+    }
+    // Elimination stages: bracket_match format
+    const parts = stage.split('_');
+    if (parts.length !== 2)
+        return stage.toUpperCase();
+    const [bracket, match] = parts;
+    const bracketUpper = bracket.toUpperCase();
+    switch (match) {
+        case 'finals':
+            return `${bracketUpper}.FIN`;
+        case 'semis':
+            return `${bracketUpper}.SF${groupNumber ?? ''}`;
+        case 'quarters':
+            return `${bracketUpper}.QF${groupNumber ?? ''}`;
+        case '3rd4th':
+            return `${bracketUpper}.3/4`;
+        case '4th5th':
+            return `${bracketUpper}.4/5`;
+        default:
+            return `${bracketUpper}.${match.toUpperCase()}`;
+    }
+}
+function abbreviateCategory(category) {
+    if (!category)
+        return '';
+    // Split by spaces, underscores, and hyphens
+    const words = category.split(/[\s_-]+/);
+    return words.map(word => {
+        // Extract leading letters and trailing numbers
+        const match = word.match(/^([a-zA-Z]+)(\d*)$/);
+        if (match) {
+            return match[1][0].toUpperCase() + match[2];
+        }
+        // If word starts with letter, take first letter
+        if (word.match(/^[a-zA-Z]/)) {
+            return word[0].toUpperCase();
+        }
+        return word;
+    }).join('');
+}
+async function resolveFixtureId(client, tournamentId, fixtureRef) {
+    // If it's a pure number, use it directly
+    if (/^\d+$/.test(fixtureRef)) {
+        return fixtureRef;
+    }
+    // Check if it's in abbreviated format (e.g., "D1.01", "MJ.15")
+    const match = fixtureRef.match(/^([A-Z]+\d*)\.(\d+)$/i);
+    if (!match) {
+        // Not in abbreviated format, assume it's a full ID
+        return fixtureRef;
+    }
+    const [_, abbrev, idSuffix] = match;
+    const abbrevUpper = abbrev.toUpperCase();
+    // Fetch all fixtures and find the matching one
+    const fixtures = await client.get(`/api/tournaments/${tournamentId}/fixtures`);
+    const matchingFixtures = fixtures.filter(f => {
+        const fx = f;
+        const fixtureAbbrev = abbreviateCategory(fx.category);
+        const fixtureIdSuffix = String(fx.id).slice(-2);
+        return fixtureAbbrev === abbrevUpper && fixtureIdSuffix === idSuffix.padStart(2, '0');
+    });
+    if (matchingFixtures.length === 0) {
+        throw new Error(`No fixture found matching "${fixtureRef}" (category abbreviation: ${abbrevUpper}, ID suffix: ${idSuffix})`);
+    }
+    if (matchingFixtures.length > 1) {
+        throw new Error(`Multiple fixtures match "${fixtureRef}". Use full fixture ID.`);
+    }
+    return String(matchingFixtures[0].id);
+}
 function createFixtureCommands() {
     const fixtureCmd = new commander_1.Command('fixture')
         .alias('f')
@@ -186,6 +263,7 @@ function createFixtureCommands() {
         .option('-p, --pitch <pitch>', 'Filter by pitch')
         .option('-c, --category <category>', 'Filter by category')
         .option('-r, --report <type>', 'Report type: by-pitch, by-category, next')
+        .option('-d, --detailed', 'Show all columns')
         .action(async (tournamentId, options) => {
         try {
             const { client } = await (0, helpers_js_1.getApiClient)();
@@ -224,8 +302,78 @@ function createFixtureCommands() {
                 }
                 console.log(output);
             }
-            else {
+            else if (options.detailed) {
+                // Show all columns
                 console.log((0, formatters_js_1.formatOutput)(fixtures, { format }));
+            }
+            else {
+                // Compress fixtures for simplified view
+                const compressedFixtures = fixtures.map(f => {
+                    const fx = f;
+                    // Extract last 2 digits of ID and combine with category abbreviation
+                    const idSuffix = String(fx.id).slice(-2);
+                    const catAbbrev = abbreviateCategory(fx.category);
+                    const fId = `${catAbbrev}.${idSuffix}`;
+                    // Format scheduled: DD/MM@HH:MM
+                    let scheduled = '-';
+                    if (fx.scheduled) {
+                        const d = new Date(fx.scheduled);
+                        const dd = String(d.getDate()).padStart(2, '0');
+                        const mm = String(d.getMonth() + 1).padStart(2, '0');
+                        const hh = String(d.getHours()).padStart(2, '0');
+                        const min = String(d.getMinutes()).padStart(2, '0');
+                        scheduled = `${dd}/${mm}@${hh}:${min}`;
+                    }
+                    // Format started: HH:MM only
+                    let started = '-';
+                    if (fx.started) {
+                        const d = new Date(fx.started);
+                        const hh = String(d.getHours()).padStart(2, '0');
+                        const min = String(d.getMinutes()).padStart(2, '0');
+                        started = `${hh}:${min}`;
+                    }
+                    // Calculate duration in minutes from started and ended
+                    let dur = '-';
+                    if (fx.started && fx.ended) {
+                        const start = new Date(fx.started).getTime();
+                        const end = new Date(fx.ended).getTime();
+                        const minutes = Math.round((end - start) / 60000);
+                        dur = String(minutes);
+                    }
+                    // Build score format: X-XX (XX)
+                    const goals1 = fx.goals1 ?? 0;
+                    const points1 = fx.points1 ?? 0;
+                    const total1 = goals1 * 3 + points1;
+                    const score1 = `${goals1}-${String(points1).padStart(2, '0')} (${String(total1).padStart(2, '0')})`;
+                    const goals2 = fx.goals2 ?? 0;
+                    const points2 = fx.points2 ?? 0;
+                    const total2 = goals2 * 3 + points2;
+                    const score2 = `${goals2}-${String(points2).padStart(2, '0')} (${String(total2).padStart(2, '0')})`;
+                    const numCards = Array.isArray(fx.cards) ? fx.cards.length : 0;
+                    // Format stage
+                    const stage = formatStage(fx.stage, fx.groupNumber);
+                    // Truncate names to max 20 chars
+                    const truncate = (name) => {
+                        const str = String(name ?? '');
+                        return str.length > 20 ? str.slice(0, 20) : str;
+                    };
+                    return {
+                        'F-ID': fId,
+                        'STAGE': stage,
+                        'PITCH': fx.pitch,
+                        'SCHEDULED': scheduled,
+                        'STARTED': started,
+                        'DUR': dur,
+                        'TEAM1': truncate(fx.team1Id),
+                        'SCORE1': score1,
+                        'TEAM2': truncate(fx.team2Id),
+                        'SCORE2': score2,
+                        'UMPIRE': truncate(fx.umpireTeamId),
+                        'OUTCOME': fx.outcome,
+                        'CARDS': numCards
+                    };
+                });
+                console.log((0, formatters_js_1.formatOutput)(compressedFixtures, { format }));
             }
         }
         catch (err) {
@@ -237,9 +385,10 @@ function createFixtureCommands() {
     fixtureCmd
         .command('get <tournament-id> <fixture-id>')
         .description('Get fixture details')
-        .action(async (tournamentId, fixtureId) => {
+        .action(async (tournamentId, fixtureRef) => {
         try {
             const { client } = await (0, helpers_js_1.getApiClient)();
+            const fixtureId = await resolveFixtureId(client, tournamentId, fixtureRef);
             const fixture = await client.get(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}`);
             const opts = global.ppOpts;
             console.log((0, formatters_js_1.formatOutput)(fixture, { format: (0, helpers_js_1.assertOutputFormat)(opts.format) }));
@@ -285,11 +434,12 @@ function createFixtureCommands() {
     fixtureCmd
         .command('start <tournament-id> <fixture-id>')
         .description('Start a fixture (make it live)')
-        .action(async (tournamentId, fixtureId) => {
+        .action(async (tournamentId, fixtureRef) => {
         try {
             const { client } = await (0, helpers_js_1.getApiClient)();
+            const fixtureId = await resolveFixtureId(client, tournamentId, fixtureRef);
             await client.post(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}/start`);
-            (0, utils_js_1.success)(`Started fixture ${fixtureId}`);
+            (0, utils_js_1.success)(`Started fixture ${fixtureRef} (${fixtureId})`);
         }
         catch (err) {
             const message = err instanceof Error ? err.message : 'Failed to start fixture';
@@ -304,20 +454,17 @@ function createFixtureCommands() {
         .requiredOption('--away-points <points>', 'Away team points')
         .option('--home-goals <goals>', 'Home team goals')
         .option('--away-goals <goals>', 'Away team goals')
-        .action(async (tournamentId, fixtureId, options) => {
+        .action(async (tournamentId, fixtureRef, options) => {
         try {
             const { client } = await (0, helpers_js_1.getApiClient)();
-            // API uses goals1/points1 and goals2/points2 field names
-            const body = {
-                points1: parseInt(options.homePoints, 10),
-                points2: parseInt(options.awayPoints, 10)
-            };
-            if (options.homeGoals)
-                body.goals1 = parseInt(options.homeGoals, 10);
-            if (options.awayGoals)
-                body.goals2 = parseInt(options.awayGoals, 10);
-            await client.post(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}/score`, body);
-            (0, utils_js_1.success)(`Updated score for fixture ${fixtureId}`);
+            const fixtureId = await resolveFixtureId(client, tournamentId, fixtureRef);
+            await client.post(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}/score`, {
+                homePoints: parseInt(options.homePoints),
+                awayPoints: parseInt(options.awayPoints),
+                homeGoals: options.homeGoals ? parseInt(options.homeGoals) : undefined,
+                awayGoals: options.awayGoals ? parseInt(options.awayGoals) : undefined
+            });
+            (0, utils_js_1.success)(`Updated score for fixture ${fixtureRef} (${fixtureId})`);
         }
         catch (err) {
             const message = err instanceof Error ? err.message : 'Failed to update score';
@@ -326,90 +473,23 @@ function createFixtureCommands() {
         }
     });
     fixtureCmd
-        .command('end <tournament-id> <fixture-id>')
-        .description('End a fixture')
-        .action(async (tournamentId, fixtureId) => {
-        try {
-            const { client } = await (0, helpers_js_1.getApiClient)();
-            await client.post(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}/end`);
-            (0, utils_js_1.success)(`Ended fixture ${fixtureId}`);
-        }
-        catch (err) {
-            const message = err instanceof Error ? err.message : 'Failed to end fixture';
-            (0, utils_js_1.error)(message);
-            process.exit(1);
-        }
-    });
-    fixtureCmd
-        .command('reschedule <tournament-id> <fixture-id>')
-        .description('Reschedule a fixture')
-        .option('-t, --time <time>', 'New time (HH:MM)')
-        .option('-p, --pitch <pitch>', 'New pitch')
-        .action(async (tournamentId, fixtureId, options) => {
-        try {
-            const { client } = await (0, helpers_js_1.getApiClient)();
-            const body = {};
-            if (options.time)
-                body.time = options.time;
-            if (options.pitch)
-                body.pitch = options.pitch;
-            await client.post(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}/reschedule`, body);
-            (0, utils_js_1.success)(`Rescheduled fixture ${fixtureId}`);
-        }
-        catch (err) {
-            const message = err instanceof Error ? err.message : 'Failed to reschedule fixture';
-            (0, utils_js_1.error)(message);
-            process.exit(1);
-        }
-    });
-    fixtureCmd
-        .command('rewind <tournament-id> <fixture-id>')
-        .description('Rewind a fixture (undo end)')
-        .action(async (tournamentId, fixtureId) => {
-        try {
-            const { client } = await (0, helpers_js_1.getApiClient)();
-            await client.put(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}/rewind`);
-            (0, utils_js_1.success)(`Rewound fixture ${fixtureId}`);
-        }
-        catch (err) {
-            const message = err instanceof Error ? err.message : 'Failed to rewind fixture';
-            (0, utils_js_1.error)(message);
-            process.exit(1);
-        }
-    });
-    // Card commands
-    fixtureCmd
-        .command('cards <tournament-id> <fixture-id>')
-        .description('List all cards in a fixture')
-        .action(async (tournamentId, fixtureId) => {
-        try {
-            const { client } = await (0, helpers_js_1.getApiClient)();
-            const cards = await client.get(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}/cards`);
-            const opts = global.ppOpts;
-            console.log((0, formatters_js_1.formatOutput)(cards, { format: (0, helpers_js_1.assertOutputFormat)(opts.format) }));
-        }
-        catch (err) {
-            const message = err instanceof Error ? err.message : 'Failed to list cards';
-            (0, utils_js_1.error)(message);
-            process.exit(1);
-        }
-    });
-    fixtureCmd
         .command('card <tournament-id> <fixture-id>')
         .description('Issue a card to a player')
-        .requiredOption('-p, --player <name>', 'Player name')
-        .requiredOption('-c, --color <color>', 'Card color (yellow, red, black)')
-        .option('-r, --reason <reason>', 'Reason for card')
-        .action(async (tournamentId, fixtureId, options) => {
+        .requiredOption('--team <team>', 'Team number (1 or 2)')
+        .requiredOption('--player <player>', 'Player name')
+        .requiredOption('--type <type>', 'Card type (yellow, red, black)')
+        .option('--reason <reason>', 'Reason for card')
+        .action(async (tournamentId, fixtureRef, options) => {
         try {
             const { client } = await (0, helpers_js_1.getApiClient)();
-            const body = {
+            const fixtureId = await resolveFixtureId(client, tournamentId, fixtureRef);
+            await client.post(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}/cards`, {
+                team: parseInt(options.team),
                 playerName: options.player,
-                color: options.color,
-                reason: options.reason || 'Unsporting behavior'
-            };
-            await client.post(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}/cards`, body);
-            (0, utils_js_1.success)(`Issued ${options.color} card to ${options.player}`);
+                cardType: options.type,
+                reason: options.reason
+            });
+            (0, utils_js_1.success)(`Issued ${options.type} card to ${options.player}`);
         }
         catch (err) {
             const message = err instanceof Error ? err.message : 'Failed to issue card';
@@ -418,16 +498,33 @@ function createFixtureCommands() {
         }
     });
     fixtureCmd
-        .command('delete-card <tournament-id> <fixture-id> <card-id>')
-        .description('Delete a card from a fixture')
-        .action(async (tournamentId, fixtureId, cardId) => {
+        .command('finish <tournament-id> <fixture-id>')
+        .description('Finish a fixture (mark as completed)')
+        .action(async (tournamentId, fixtureRef) => {
         try {
             const { client } = await (0, helpers_js_1.getApiClient)();
-            await client.delete(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}/cards/${cardId}`);
-            (0, utils_js_1.success)(`Deleted card ${cardId}`);
+            const fixtureId = await resolveFixtureId(client, tournamentId, fixtureRef);
+            await client.post(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}/finish`);
+            (0, utils_js_1.success)(`Finished fixture ${fixtureRef} (${fixtureId})`);
         }
         catch (err) {
-            const message = err instanceof Error ? err.message : 'Failed to delete card';
+            const message = err instanceof Error ? err.message : 'Failed to finish fixture';
+            (0, utils_js_1.error)(message);
+            process.exit(1);
+        }
+    });
+    fixtureCmd
+        .command('reset <tournament-id> <fixture-id>')
+        .description('Reset a fixture to pending state')
+        .action(async (tournamentId, fixtureRef) => {
+        try {
+            const { client } = await (0, helpers_js_1.getApiClient)();
+            const fixtureId = await resolveFixtureId(client, tournamentId, fixtureRef);
+            await client.post(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}/reset`);
+            (0, utils_js_1.success)(`Reset fixture ${fixtureRef} (${fixtureId}) to pending state`);
+        }
+        catch (err) {
+            const message = err instanceof Error ? err.message : 'Failed to reset fixture';
             (0, utils_js_1.error)(message);
             process.exit(1);
         }

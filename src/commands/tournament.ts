@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import { getCurrentSession } from '../lib/config.js';
 import { getApiClient, assertOutputFormat } from '../lib/helpers.js';
-import { formatOutput, formatStandings, formatStandingsWithMatches } from '../lib/formatters.js';
+import { formatOutput, formatStandings, formatStandingsWithMatches, formatTournamentList } from '../lib/formatters.js';
 import { success, error, info } from '../lib/utils.js';
 import {
   storeConfirmationCode,
@@ -24,6 +24,7 @@ export function createTournamentCommands(): Command {
     .description('List all tournaments')
     .option('-s, --status <status>', 'Filter by status (draft, published, started, closed)')
     .option('-r, --region <region>', 'Filter by region')
+    .option('--include-old-closed', 'Include closed/archived tournaments older than 1 month')
     .action(async (options) => {
       try {
         const { client } = await getApiClient();
@@ -33,15 +34,26 @@ export function createTournamentCommands(): Command {
           path = `/api/tournaments/by-status/${options.status}`;
         }
 
-        const tournaments = await client.get<TournamentSummary[]>(path);
+        const response = await client.get<TournamentSummary[] | { data?: TournamentSummary[] }>(path);
+        
+        // Handle both direct array responses and wrapped { data: [...] } responses
+        const tournaments = Array.isArray(response) 
+          ? response 
+          : (response && typeof response === 'object' && 'data' in response && Array.isArray(response.data))
+            ? response.data
+            : [];
 
         if (tournaments.length === 0) {
           info('No tournaments found');
           return;
         }
 
-        const opts = (global as unknown as { ppOpts: GlobalOptions }).ppOpts;
-        console.log(formatOutput(tournaments, { format: assertOutputFormat(opts.format) }));
+        const globalOpts = (global as unknown as { ppOpts?: GlobalOptions }).ppOpts;
+        const format = globalOpts?.format ?? 'table';
+        console.log(formatTournamentList(tournaments, {
+          format: assertOutputFormat(format),
+          includeOldClosed: options.includeOldClosed
+        }));
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to list tournaments';
         error(message);

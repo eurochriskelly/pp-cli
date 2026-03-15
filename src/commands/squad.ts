@@ -59,7 +59,7 @@ export function createSquadCommands(): Command {
         const { client } = await getApiClient();
 
         const body = {
-          name: options.name,
+          teamName: options.name,
           category: options.category,
           clubId: options.clubId ? parseInt(options.clubId, 10) : undefined
         };

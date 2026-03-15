@@ -20,6 +20,21 @@ npm run build
 npm link  # Creates global symlink
 ```
 
+## TUI
+
+The repo now includes a CLI-backed TUI entrypoint:
+
+```bash
+bun run src/tui.tsx
+```
+
+The TUI is Bun/OpenTUI-based and shells out to the existing CLI for both state and presentation. It currently provides:
+
+- domain navigation for auth, tournaments, fixtures, squads, championships, clubs, teams, and series
+- context selectors for tournaments, fixtures, squads, championships, clubs, teams, and series
+- CLI-native output panes that reuse the existing table and condensed command views
+- an editable command box for running the exact CLI command shown in the UI
+
 ## Quick Start
 
 ```bash
