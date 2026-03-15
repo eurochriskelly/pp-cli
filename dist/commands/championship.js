@@ -417,7 +417,12 @@ function createSeriesCommands() {
             (0, utils_js_1.success)(`Deleted series ${id}`);
         }
         catch (err) {
-            const message = err instanceof Error ? err.message : 'Failed to delete series';
+            // Handle authentication errors specially
+            if ((0, utils_js_1.isAuthError)(err)) {
+                (0, utils_js_1.error)('Authentication required. Your session may have expired. Please run: ppx auth login');
+                process.exit(1);
+            }
+            const message = (0, utils_js_1.getErrorMessage)(err, 'Failed to delete series');
             (0, utils_js_1.error)(message);
             process.exit(1);
         }
