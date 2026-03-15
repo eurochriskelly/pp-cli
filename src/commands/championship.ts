@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import { getApiClient, assertOutputFormat } from '../lib/helpers.js';
 import { formatOutput, formatSeriesList } from '../lib/formatters.js';
-import { success, error, info } from '../lib/utils.js';
+import { success, error, info, getErrorMessage, isAuthError } from '../lib/utils.js';
 import type { GlobalOptions, Championship, Series, Entrant } from '../types/index.js';
 
 export function createChampionshipCommands(): Command {
@@ -450,7 +450,13 @@ export function createSeriesCommands(): Command {
 
         success(`Deleted series ${id}`);
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to delete series';
+        // Handle authentication errors specially
+        if (isAuthError(err)) {
+          error('Authentication required. Your session may have expired. Please run: ppx auth login');
+          process.exit(1);
+        }
+
+        const message = getErrorMessage(err, 'Failed to delete series');
         error(message);
         process.exit(1);
       }

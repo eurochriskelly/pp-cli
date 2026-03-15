@@ -67,3 +67,31 @@ export function isValidEmail(email: string): boolean {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   return emailRegex.test(email);
 }
+
+/**
+ * Extract error message from various error types
+ * Handles Error instances, ApiError objects, and other error types
+ */
+export function getErrorMessage(err: unknown, defaultMessage: string): string {
+  // Check for ApiError objects (which have a message property but aren't Error instances)
+  if (err && typeof err === 'object' && 'message' in err) {
+    return String((err as { message: string }).message);
+  }
+  
+  // Check for standard Error instances
+  if (err instanceof Error) {
+    return err.message;
+  }
+  
+  return defaultMessage;
+}
+
+/**
+ * Check if error is an authentication error (401)
+ */
+export function isAuthError(err: unknown): boolean {
+  return err !== null && 
+         typeof err === 'object' && 
+         'status' in err && 
+         (err as { status: number }).status === 401;
+}
