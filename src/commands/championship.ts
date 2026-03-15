@@ -446,7 +446,7 @@ export function createSeriesCommands(): Command {
     .action(async (id) => {
       try {
         const { client } = await getApiClient();
-        await client.delete(`/api/series/${id}`);
+        await client.delete(`/api/series/${id}?hard=true`);
 
         success(`Deleted series ${id}`);
       } catch (err) {
