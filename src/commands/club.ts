@@ -4,6 +4,70 @@ import { formatOutput } from '../lib/formatters.js';
 import { success, error, info } from '../lib/utils.js';
 import type { GlobalOptions, Club, Team } from '../types/index.js';
 
+// Format teams list with custom column selection and ordering
+function formatTeamsList(teams: Team[]): string {
+  if (teams.length === 0) {
+    return 'No teams found';
+  }
+
+  // Define columns: ID, NAME, COMPETITION, CLUBS
+  const headers = ['ID', 'NAME', 'COMPETITION', 'CLUBS'];
+  
+  // Calculate column widths
+  const widths: number[] = headers.map(h => h.length);
+  
+  const rows = teams.map(t => {
+    const tObj = t as unknown as Record<string, unknown>;
+    
+    // Format contributing clubs
+    let clubsStr = '-';
+    const contributingClubs = tObj.contributingClubs || tObj.ContributingClubs;
+    if (Array.isArray(contributingClubs) && contributingClubs.length > 0) {
+      // Try to extract club names or IDs
+      const clubNames = contributingClubs.map((club: unknown) => {
+        if (typeof club === 'object' && club !== null) {
+          const clubObj = club as Record<string, unknown>;
+          return String(clubObj.name || clubObj.Name || clubObj.id || clubObj.Id || '?');
+        }
+        return String(club);
+      });
+      clubsStr = clubNames.join(', ');
+    }
+    
+    const row = [
+      String(tObj.id || tObj.Id || '-'),
+      String(tObj.name || tObj.Name || '-'),
+      String(tObj.competition || tObj.Competition || '-'),
+      clubsStr
+    ];
+    
+    row.forEach((cell, i) => {
+      widths[i] = Math.max(widths[i], cell.length);
+    });
+    
+    return row;
+  });
+  
+  // Build output
+  const lines: string[] = [];
+  
+  // Header row
+  const headerRow = headers.map((h, i) => h.padEnd(widths[i])).join('  ');
+  lines.push(headerRow);
+  
+  // Separator line
+  const separator = headers.map((_, i) => '-'.repeat(widths[i])).join('  ');
+  lines.push(separator);
+  
+  // Data rows
+  for (const row of rows) {
+    const line = row.map((cell, i) => cell.padEnd(widths[i])).join('  ');
+    lines.push(line);
+  }
+  
+  return lines.join('\n');
+}
+
 export function createClubCommands(): Command {
   const clubCmd = new Command('club')
     .alias('cl')
@@ -143,14 +207,14 @@ export function createTeamCommands(): Command {
     .description('Team management commands');
 
   teamCmd
-    .command('list')
-    .description('List all teams')
+    .command('list <tournament-id>')
+    .description('List all teams in a tournament')
     .option('-c, --club <club-id>', 'Filter by club')
-    .action(async (options) => {
+    .action(async (tournamentId, options) => {
       try {
         const { client } = await getApiClient();
 
-        let path = '/api/teams';
+        let path = `/api/tournaments/${tournamentId}/teams`;
         if (options.club) {
           path += `?clubId=${options.club}`;
         }
@@ -162,8 +226,7 @@ export function createTeamCommands(): Command {
           return;
         }
 
-        const opts = (global as unknown as { ppOpts: GlobalOptions }).ppOpts;
-        console.log(formatOutput(teams, { format: assertOutputFormat(opts.format) }));
+        console.log(formatTeamsList(teams));
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to list teams';
         error(message);
