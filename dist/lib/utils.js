@@ -14,6 +14,8 @@ exports.truncate = truncate;
 exports.parseId = parseId;
 exports.validateRequired = validateRequired;
 exports.isValidEmail = isValidEmail;
+exports.getErrorMessage = getErrorMessage;
+exports.isAuthError = isAuthError;
 const chalk_1 = __importDefault(require("chalk"));
 function success(message) {
     console.log(chalk_1.default.green('✓'), message);
@@ -71,5 +73,29 @@ function validateRequired(value, name) {
 function isValidEmail(email) {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return emailRegex.test(email);
+}
+/**
+ * Extract error message from various error types
+ * Handles Error instances, ApiError objects, and other error types
+ */
+function getErrorMessage(err, defaultMessage) {
+    // Check for ApiError objects (which have a message property but aren't Error instances)
+    if (err && typeof err === 'object' && 'message' in err) {
+        return String(err.message);
+    }
+    // Check for standard Error instances
+    if (err instanceof Error) {
+        return err.message;
+    }
+    return defaultMessage;
+}
+/**
+ * Check if error is an authentication error (401)
+ */
+function isAuthError(err) {
+    return err !== null &&
+        typeof err === 'object' &&
+        'status' in err &&
+        err.status === 401;
 }
 //# sourceMappingURL=utils.js.map

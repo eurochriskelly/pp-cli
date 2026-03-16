@@ -91,8 +91,14 @@ export interface Championship {
 export interface Series {
   id: number;
   name: string;
+  description?: string;
   sport?: string;
-  squadSize?: number;
+  defaultSquadSize?: number;
+  defaultPlayersPerTeam?: number;
+  rulesetId?: number | null;
+  status?: string;
+  squadSize?: number; // legacy field
+  championshipIds?: number[];
 }
 
 export interface Entrant {
@@ -132,10 +138,18 @@ export interface ConfigProfile {
   timeout: number;
 }
 
+// Confirmation code entry
+export interface ConfirmationEntry {
+  code: string;
+  createdAt: number;
+  expiresAt: number;
+}
+
 // Session types
 export interface Session {
   currentProfile: string;
   sessions: Record<string, UserSession>;
+  confirmationCodes?: Record<string, ConfirmationEntry>;
 }
 
 export interface UserSession {

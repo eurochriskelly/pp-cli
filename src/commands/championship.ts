@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import { getApiClient, assertOutputFormat } from '../lib/helpers.js';
-import { formatOutput } from '../lib/formatters.js';
-import { success, error, info } from '../lib/utils.js';
+import { formatOutput, formatSeriesList } from '../lib/formatters.js';
+import { success, error, info, getErrorMessage, isAuthError } from '../lib/utils.js';
 import type { GlobalOptions, Championship, Series, Entrant } from '../types/index.js';
 
 export function createChampionshipCommands(): Command {
@@ -325,7 +325,10 @@ export function createSeriesCommands(): Command {
           path += `?sport=${encodeURIComponent(options.sport)}`;
         }
 
-        const series = await client.get<Series[]>(path);
+        const [series, championships] = await Promise.all([
+          client.get<Series[]>(path),
+          client.get<Championship[]>('/api/championships')
+        ]);
 
         if (series.length === 0) {
           info('No series found');
@@ -333,7 +336,10 @@ export function createSeriesCommands(): Command {
         }
 
         const opts = (global as unknown as { ppOpts: GlobalOptions }).ppOpts;
-        console.log(formatOutput(series, { format: assertOutputFormat(opts.format) }));
+        console.log(formatSeriesList(series, { 
+          format: assertOutputFormat(opts.format),
+          championships 
+        }));
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to list series';
         error(message);
@@ -350,7 +356,31 @@ export function createSeriesCommands(): Command {
         const series = await client.get<Series>(`/api/series/${id}`);
 
         const opts = (global as unknown as { ppOpts: GlobalOptions }).ppOpts;
-        console.log(formatOutput(series, { format: assertOutputFormat(opts.format) }));
+        const format = assertOutputFormat(opts.format);
+
+        if (format === 'table') {
+          // For table format, show series details and championships separately
+          console.log(formatOutput(series, { format }));
+
+          // Fetch and display championships for this series
+          const championships = await client.get<Championship[]>('/api/championships');
+          const seriesChampionships = championships.filter(c => c.seriesId === parseInt(id, 10));
+
+          if (seriesChampionships.length > 0) {
+            console.log('\nChampionships:');
+            console.log(formatOutput(seriesChampionships, { format }));
+          }
+        } else {
+          // For other formats, include championships in the output
+          const championships = await client.get<Championship[]>('/api/championships');
+          const seriesChampionships = championships.filter(c => c.seriesId === parseInt(id, 10));
+
+          const output = {
+            ...series,
+            championships: seriesChampionships
+          };
+          console.log(formatOutput(output, { format }));
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to get series';
         error(message);
@@ -420,7 +450,13 @@ export function createSeriesCommands(): Command {
 
         success(`Deleted series ${id}`);
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to delete series';
+        // Handle authentication errors specially
+        if (isAuthError(err)) {
+          error('Authentication required. Your session may have expired. Please run: ppx auth login');
+          process.exit(1);
+        }
+
+        const message = getErrorMessage(err, 'Failed to delete series');
         error(message);
         process.exit(1);
       }

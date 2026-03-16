@@ -5,12 +5,14 @@
   "main": "dist/index.js",
   "bin": {
     "ppx": "dist/index.js",
-    "pp-cli": "dist/index.js"
+    "pp-cli": "dist/index.js",
+    "ppx-tui": "src/tui.tsx"
   },
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/index.ts",
     "start": "node dist/index.js",
+    "tui": "bun run src/tui.tsx",
     "test": "vitest",
     "test:unit": "vitest run --reporter=verbose",
     "lint": "eslint src/**/*.ts",
@@ -31,16 +33,22 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
+    "@opentui/core": "^0.1.87",
+    "@opentui/react": "^0.1.87",
     "chalk": "^5.4.1",
     "cli-table3": "^0.6.5",
     "commander": "^13.1.0",
     "js-yaml": "^4.1.0",
     "ora": "^8.2.0",
+    "react": "^19.2.4",
+    "react-devtools-core": "^7.0.1",
+    "ws": "^8.19.0",
     "zod": "^3.24.2"
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.13.10",
+    "@types/react": "^19.2.14",
     "eslint": "^9.22.0",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2",

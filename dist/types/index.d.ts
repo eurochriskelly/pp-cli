@@ -78,8 +78,14 @@ export interface Championship {
 export interface Series {
     id: number;
     name: string;
+    description?: string;
     sport?: string;
+    defaultSquadSize?: number;
+    defaultPlayersPerTeam?: number;
+    rulesetId?: number | null;
+    status?: string;
     squadSize?: number;
+    championshipIds?: number[];
 }
 export interface Entrant {
     id: number;
@@ -111,9 +117,15 @@ export interface ConfigProfile {
     outputFormat: 'table' | 'json' | 'yaml';
     timeout: number;
 }
+export interface ConfirmationEntry {
+    code: string;
+    createdAt: number;
+    expiresAt: number;
+}
 export interface Session {
     currentProfile: string;
     sessions: Record<string, UserSession>;
+    confirmationCodes?: Record<string, ConfirmationEntry>;
 }
 export interface UserSession {
     token: string;
