@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import { getApiClient, assertOutputFormat } from '../lib/helpers.js';
 import { formatOutput } from '../lib/formatters.js';
-import { success, error, info } from '../lib/utils.js';
+import { success, error, info, getErrorMessage } from '../lib/utils.js';
 import type { GlobalOptions, Fixture } from '../types/index.js';
 
 // Report formatting functions from lane2
@@ -259,7 +259,93 @@ function abbreviateCategory(category: string | undefined): string {
   }).join('');
 }
 
-async function resolveFixtureId(
+function compressFixtures(fixtures: Fixture[]): Record<string, unknown>[] {
+  return fixtures.map(f => {
+    const fx = f as unknown as Record<string, unknown>;
+
+    const idSuffix = String(fx.id).slice(-2);
+    const catAbbrev = abbreviateCategory(fx.category as string);
+    const fId = `${catAbbrev}.${idSuffix}`;
+
+    let scheduled = '-';
+    if (fx.scheduled) {
+      const d = new Date(fx.scheduled as string);
+      const dd = String(d.getDate()).padStart(2, '0');
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const hh = String(d.getHours()).padStart(2, '0');
+      const min = String(d.getMinutes()).padStart(2, '0');
+      scheduled = `${dd}/${mm}@${hh}:${min}`;
+    }
+
+    let started = '-';
+    if (fx.started) {
+      const d = new Date(fx.started as string);
+      const hh = String(d.getHours()).padStart(2, '0');
+      const min = String(d.getMinutes()).padStart(2, '0');
+      started = `${hh}:${min}`;
+    }
+
+    let dur = '-';
+    if (fx.started && fx.ended) {
+      const start = new Date(fx.started as string).getTime();
+      const end = new Date(fx.ended as string).getTime();
+      const minutes = Math.round((end - start) / 60000);
+      dur = String(minutes);
+    }
+
+    const goals1 = (fx.goals1 as number) ?? 0;
+    const points1 = (fx.points1 as number) ?? 0;
+    const total1 = goals1 * 3 + points1;
+    const score1 = `${goals1}-${String(points1).padStart(2, '0')} (${String(total1).padStart(2, '0')})`;
+
+    const goals2 = (fx.goals2 as number) ?? 0;
+    const points2 = (fx.points2 as number) ?? 0;
+    const total2 = goals2 * 3 + points2;
+    const score2 = `${goals2}-${String(points2).padStart(2, '0')} (${String(total2).padStart(2, '0')})`;
+
+    const numCards = Array.isArray(fx.cards) ? fx.cards.length : 0;
+    const stage = formatStage(fx.stage as string, fx.groupNumber as number);
+
+    const truncate = (name: unknown): string => {
+      const str = String(name ?? '');
+      return str.length > 20 ? str.slice(0, 20) : str;
+    };
+
+    return {
+      'F-ID': fId,
+      'STAGE': stage,
+      'PITCH': fx.pitch,
+      'SCHEDULED': scheduled,
+      'STARTED': started,
+      'DUR': dur,
+      'TEAM1': truncate(fx.team1Id),
+      'SCORE1': score1,
+      'TEAM2': truncate(fx.team2Id),
+      'SCORE2': score2,
+      'UMPIRE': truncate(fx.umpireTeamId),
+      'OUTCOME': fx.outcome,
+      'CARDS': numCards
+    };
+  });
+}
+
+function matchesCompetition(fixture: Fixture, competitionRef: string): boolean {
+  const fx = fixture as unknown as Record<string, unknown>;
+  const ref = competitionRef.toUpperCase();
+  const category = String(fx.category ?? '').toUpperCase();
+  const abbrev = abbreviateCategory(fx.category as string).toUpperCase();
+  const match = String(fx.match ?? '').toUpperCase();
+  return category === ref || abbrev === ref || match.startsWith(`${ref}.`);
+}
+
+function getFixtureSortTime(fixture: Fixture): number {
+  const fx = fixture as unknown as Record<string, unknown>;
+  const scheduled = fx.scheduled ? new Date(String(fx.scheduled)).getTime() : Number.POSITIVE_INFINITY;
+  const id = Number(fx.id ?? 0);
+  return Number.isFinite(scheduled) ? scheduled * 1000 + id : id;
+}
+
+export async function resolveFixtureId(
   client: { get: <T>(path: string) => Promise<T> },
   tournamentId: string,
   fixtureRef: string
@@ -356,87 +442,80 @@ export function createFixtureCommands(): Command {
           // Show all columns
           console.log(formatOutput(fixtures, { format }));
         } else {
-          // Compress fixtures for simplified view
-          const compressedFixtures = fixtures.map(f => {
-            const fx = f as unknown as Record<string, unknown>;
-
-            // Extract last 2 digits of ID and combine with category abbreviation
-            const idSuffix = String(fx.id).slice(-2);
-            const catAbbrev = abbreviateCategory(fx.category as string);
-            const fId = `${catAbbrev}.${idSuffix}`;
-
-            // Format scheduled: DD/MM@HH:MM
-            let scheduled = '-';
-            if (fx.scheduled) {
-              const d = new Date(fx.scheduled as string);
-              const dd = String(d.getDate()).padStart(2, '0');
-              const mm = String(d.getMonth() + 1).padStart(2, '0');
-              const hh = String(d.getHours()).padStart(2, '0');
-              const min = String(d.getMinutes()).padStart(2, '0');
-              scheduled = `${dd}/${mm}@${hh}:${min}`;
-            }
-
-            // Format started: HH:MM only
-            let started = '-';
-            if (fx.started) {
-              const d = new Date(fx.started as string);
-              const hh = String(d.getHours()).padStart(2, '0');
-              const min = String(d.getMinutes()).padStart(2, '0');
-              started = `${hh}:${min}`;
-            }
-
-            // Calculate duration in minutes from started and ended
-            let dur = '-';
-            if (fx.started && fx.ended) {
-              const start = new Date(fx.started as string).getTime();
-              const end = new Date(fx.ended as string).getTime();
-              const minutes = Math.round((end - start) / 60000);
-              dur = String(minutes);
-            }
-
-            // Build score format: X-XX (XX)
-            const goals1 = (fx.goals1 as number) ?? 0;
-            const points1 = (fx.points1 as number) ?? 0;
-            const total1 = goals1 * 3 + points1;
-            const score1 = `${goals1}-${String(points1).padStart(2, '0')} (${String(total1).padStart(2, '0')})`;
-
-            const goals2 = (fx.goals2 as number) ?? 0;
-            const points2 = (fx.points2 as number) ?? 0;
-            const total2 = goals2 * 3 + points2;
-            const score2 = `${goals2}-${String(points2).padStart(2, '0')} (${String(total2).padStart(2, '0')})`;
-
-            const numCards = Array.isArray(fx.cards) ? fx.cards.length : 0;
-
-            // Format stage
-            const stage = formatStage(fx.stage as string, fx.groupNumber as number);
-
-            // Truncate names to max 20 chars
-            const truncate = (name: unknown): string => {
-              const str = String(name ?? '');
-              return str.length > 20 ? str.slice(0, 20) : str;
-            };
-
-            return {
-              'F-ID': fId,
-              'STAGE': stage,
-              'PITCH': fx.pitch,
-              'SCHEDULED': scheduled,
-              'STARTED': started,
-              'DUR': dur,
-              'TEAM1': truncate(fx.team1Id),
-              'SCORE1': score1,
-              'TEAM2': truncate(fx.team2Id),
-              'SCORE2': score2,
-              'UMPIRE': truncate(fx.umpireTeamId),
-              'OUTCOME': fx.outcome,
-              'CARDS': numCards
-            };
-          });
-          
+          const compressedFixtures = compressFixtures(fixtures);
           console.log(formatOutput(compressedFixtures, { format }));
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to list fixtures';
+        error(message);
+        process.exit(1);
+      }
+    });
+
+  fixtureCmd
+    .command('comp <tournament-id> <competition> <mode>')
+    .description('Competition actions for a tournament')
+    .action(async (tournamentId, competition, mode) => {
+      try {
+        if (mode !== 'auto') {
+          throw new Error(`Unknown mode "${mode}". Use "auto".`);
+        }
+
+        const { client } = await getApiClient();
+        const fixtures = await client.get<Fixture[]>(`/api/tournaments/${tournamentId}/fixtures`);
+
+        const matchingFixtures = fixtures.filter((fixture) => matchesCompetition(fixture, competition));
+        if (matchingFixtures.length === 0) {
+          throw new Error(`No fixtures found for competition "${competition}" in tournament ${tournamentId}`);
+        }
+
+        const nextFixture = matchingFixtures
+          .filter((fixture) => {
+            const fx = fixture as unknown as Record<string, unknown>;
+            return !fx.started && !fx.ended && String(fx.outcome ?? '').toLowerCase() === 'not played';
+          })
+          .sort((a, b) => getFixtureSortTime(a) - getFixtureSortTime(b))[0];
+
+        if (!nextFixture) {
+          throw new Error(`No upcoming fixtures left for competition "${competition}" in tournament ${tournamentId}`);
+        }
+
+        const fixtureId = String((nextFixture as unknown as Record<string, unknown>).id);
+        const fixtureRef = `${abbreviateCategory((nextFixture as unknown as Record<string, unknown>).category as string)}.${fixtureId.slice(-2)}`;
+        const homePoints = Math.floor(Math.random() * 6);
+        const awayPoints = Math.floor(Math.random() * 6);
+
+        await client.post(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}/start`);
+        await client.post(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}/score`, {
+          scores: {
+            team1: {
+              goals: 0,
+              points: homePoints
+            },
+            team2: {
+              goals: 0,
+              points: awayPoints
+            }
+          },
+          outcome: 'played'
+        });
+        await client.post(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}/end`);
+
+        success(`Auto-completed fixture ${fixtureRef} in tournament ${tournamentId}`);
+        info(`Score: 0-${String(homePoints).padStart(2, '0')} vs 0-${String(awayPoints).padStart(2, '0')}`);
+
+        const refreshedFixtures = await client.get<Fixture[]>(`/api/tournaments/${tournamentId}/fixtures`);
+        const filteredFixtures = refreshedFixtures.filter((fixture) => matchesCompetition(fixture, competition));
+        const opts = (global as unknown as { ppOpts: GlobalOptions }).ppOpts;
+        const format = assertOutputFormat(opts.format);
+
+        if (format === 'table') {
+          console.log(formatOutput(compressFixtures(filteredFixtures), { format }));
+        } else {
+          console.log(formatOutput(filteredFixtures, { format }));
+        }
+      } catch (err) {
+        const message = getErrorMessage(err, 'Failed to auto-play competition fixture');
         error(message);
         process.exit(1);
       }
@@ -528,15 +607,22 @@ export function createFixtureCommands(): Command {
         const fixtureId = await resolveFixtureId(client, tournamentId, fixtureRef);
 
         await client.post(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}/score`, {
-          homePoints: parseInt(options.homePoints),
-          awayPoints: parseInt(options.awayPoints),
-          homeGoals: options.homeGoals ? parseInt(options.homeGoals) : undefined,
-          awayGoals: options.awayGoals ? parseInt(options.awayGoals) : undefined
+          scores: {
+            team1: {
+              goals: options.homeGoals ? parseInt(options.homeGoals, 10) : 0,
+              points: parseInt(options.homePoints, 10)
+            },
+            team2: {
+              goals: options.awayGoals ? parseInt(options.awayGoals, 10) : 0,
+              points: parseInt(options.awayPoints, 10)
+            }
+          },
+          outcome: 'played'
         });
 
         success(`Updated score for fixture ${fixtureRef} (${fixtureId})`);
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to update score';
+        const message = getErrorMessage(err, 'Failed to update score');
         error(message);
         process.exit(1);
       }
@@ -577,11 +663,11 @@ export function createFixtureCommands(): Command {
         const { client } = await getApiClient();
         const fixtureId = await resolveFixtureId(client, tournamentId, fixtureRef);
 
-        await client.post(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}/finish`);
+        await client.post(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}/end`);
 
         success(`Finished fixture ${fixtureRef} (${fixtureId})`);
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to finish fixture';
+        const message = getErrorMessage(err, 'Failed to finish fixture');
         error(message);
         process.exit(1);
       }
