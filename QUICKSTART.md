@@ -40,6 +40,8 @@ ppx tournament reset <id>
 ppx tournament overview <id>
 ppx tournament standings <id>
 ppx tournament brackets <id>
+ppx tournaments load <id> --input-file=./schedule.tsv
+ppx tournaments load <id> --input-file=./schedule.tsv --confirmation-code=123456
 ```
 
 ## Squad Commands
