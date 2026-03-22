@@ -1,0 +1,7 @@
+#!/bin/bash
+
+cat .projectrc|grep alias|awk '{ print $2 }'|awk -F= '{ print $1 }'|grep -v '[p]rojectrc'
+
+dev() {
+  pnpm dev -- "$@"
+}
