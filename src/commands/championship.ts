@@ -441,12 +441,34 @@ export function createSeriesCommands(): Command {
     });
 
   seriesCmd
-    .command('delete <id>')
-    .description('Delete a series')
+    .command('deactivate <id>')
+    .description('Deactivate a series (soft delete)')
     .action(async (id) => {
       try {
         const { client } = await getApiClient();
         await client.delete(`/api/series/${id}`);
+
+        success(`Deactivated series ${id}`);
+      } catch (err) {
+        // Handle authentication errors specially
+        if (isAuthError(err)) {
+          error('Authentication required. Your session may have expired. Please run: ppx auth login');
+          process.exit(1);
+        }
+
+        const message = getErrorMessage(err, 'Failed to deactivate series');
+        error(message);
+        process.exit(1);
+      }
+    });
+
+  seriesCmd
+    .command('delete <id>')
+    .description('Permanently delete a series')
+    .action(async (id) => {
+      try {
+        const { client } = await getApiClient();
+        await client.delete(`/api/series/${id}?hard=true`);
 
         success(`Deleted series ${id}`);
       } catch (err) {
