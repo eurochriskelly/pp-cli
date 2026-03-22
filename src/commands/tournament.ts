@@ -1,8 +1,10 @@
 import { Command } from 'commander';
+import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { getCurrentSession } from '../lib/config.js';
 import { getApiClient, assertOutputFormat } from '../lib/helpers.js';
 import { formatOutput, formatStandings, formatStandingsWithMatches, formatTournamentList } from '../lib/formatters.js';
-import { success, error, info } from '../lib/utils.js';
+import { success, error, info, getErrorMessage } from '../lib/utils.js';
 import {
   storeConfirmationCode,
   verifyConfirmationCode,
@@ -14,10 +16,152 @@ import type { GlobalOptions, Tournament, TournamentSummary } from '../types/inde
 // Types for tournament data
 type Fixture = { id: number; tournamentId: number; cards?: unknown[] };
 type Squad = { id: number; tournamentId: number; players?: unknown[] };
+type FixtureLoadRow = Record<string, string>;
+type FixtureImportRow = Record<string, string | number>;
+type FixtureValidationCell = {
+  value?: string | number;
+  warnings?: Array<unknown>;
+};
+type FixtureValidationResult = {
+  valid?: boolean;
+  rows?: Array<FixtureLoadRow | Record<string, FixtureValidationCell>>;
+  warnings?: Array<string | { message?: string; row?: number; column?: string }>;
+  errors?: Array<string | { message?: string; row?: number; column?: string }>;
+  stages?: string[] | Record<string, unknown>;
+};
+const FIXTURE_TSV_HEADERS = ['TIME', 'MATCH', 'CATEGORY', 'PITCH', 'TEAM1', 'STAGE', 'TEAM2', 'UMPIRES', 'DURATION'] as const;
+const FIXTURE_IMPORT_FIELD_ORDER = ['TIME', 'MATCH', 'CATEGORY', 'PITCH', 'TEAM1', 'STAGE', 'TEAM2', 'UMPIRES', 'DURATION'] as const;
+
+function normalizeFixtureTsv(tsvContent: string): string {
+  const lines = tsvContent.replace(/^\uFEFF/, '').split(/\r?\n/).filter((line) => line.trim().length > 0);
+  if (lines.length === 0) {
+    return tsvContent;
+  }
+
+  const rawHeaders = lines[0].split('\t').map((header) => header.trim().toUpperCase());
+  const normalizedHeaders = rawHeaders.map((header) => {
+    const matchedHeader = FIXTURE_TSV_HEADERS.find((expectedHeader) => expectedHeader === header);
+    return matchedHeader ?? header;
+  });
+
+  const normalizedRows = lines.slice(1).map((line) => {
+    const values = line.split('\t');
+    return normalizedHeaders.map((_, index) => values[index]?.trim() ?? '').join('\t');
+  });
+
+  return [normalizedHeaders.join('\t'), ...normalizedRows].join('\n');
+}
+
+function getTournamentLoadConfirmationKey(tournamentId: string, tsvContent: string): string {
+  const digest = createHash('sha256').update(tsvContent).digest('hex');
+  return `tournament-load:${tournamentId}:${digest}`;
+}
+
+function formatFixtureValidationIssue(issue: string | { message?: string; row?: number; column?: string }): string {
+  if (typeof issue === 'string') {
+    return issue;
+  }
+
+  const locationParts: string[] = [];
+  if (typeof issue.row === 'number') {
+    locationParts.push(`row ${issue.row}`);
+  }
+  if (issue.column) {
+    locationParts.push(`column ${issue.column}`);
+  }
+
+  return locationParts.length > 0
+    ? `${locationParts.join(', ')}: ${issue.message ?? 'Unknown issue'}`
+    : (issue.message ?? 'Unknown issue');
+}
+
+function printFixtureValidationIssues(
+  label: string,
+  issues: Array<string | { message?: string; row?: number; column?: string }> | undefined
+): void {
+  if (!issues || issues.length === 0) {
+    return;
+  }
+
+  console.log(`${label}:`);
+  issues.forEach((issue) => {
+    console.log(`  - ${formatFixtureValidationIssue(issue)}`);
+  });
+  console.log('');
+}
+
+function printFixtureValidationSummary(validation: FixtureValidationResult): void {
+  const rowCount = Array.isArray(validation.rows) ? validation.rows.length : 0;
+  const stageCount = Array.isArray(validation.stages)
+    ? validation.stages.length
+    : (validation.stages && typeof validation.stages === 'object')
+      ? Object.keys(validation.stages).length
+      : 0;
+
+  info(`Validated ${rowCount} fixture row(s)${stageCount > 0 ? ` across ${stageCount} stage(s)` : ''}.`);
+  printFixtureValidationIssues('Warnings', validation.warnings);
+  printFixtureValidationIssues('Errors', validation.errors);
+}
+
+function printFixtureLoadErrorDetails(err: unknown): void {
+  if (!err || typeof err !== 'object' || !('details' in err)) {
+    return;
+  }
+
+  const details = (err as { details?: unknown }).details;
+  if (!details || typeof details !== 'object') {
+    return;
+  }
+
+  const validation = details as FixtureValidationResult;
+  if (Array.isArray(validation.errors) || Array.isArray(validation.warnings)) {
+    printFixtureValidationIssues('Warnings', validation.warnings);
+    printFixtureValidationIssues('Errors', validation.errors);
+    return;
+  }
+
+  console.error('\nError details:');
+  console.error(JSON.stringify(details, null, 2));
+}
+
+function flattenValidatedFixtureRows(
+  rows: Array<FixtureLoadRow | Record<string, FixtureValidationCell>> | undefined
+): FixtureImportRow[] {
+  if (!Array.isArray(rows)) {
+    return [];
+  }
+
+  return rows.map((row) => {
+    const flattened: FixtureImportRow = {};
+
+    for (const field of FIXTURE_IMPORT_FIELD_ORDER) {
+      const rawValue = row[field];
+      if (rawValue === undefined) {
+        continue;
+      }
+
+      if (
+        rawValue &&
+        typeof rawValue === 'object' &&
+        !Array.isArray(rawValue) &&
+        'value' in rawValue
+      ) {
+        const cellValue = (rawValue as FixtureValidationCell).value;
+        if (cellValue !== undefined) {
+          flattened[field] = cellValue;
+        }
+      } else {
+        flattened[field] = rawValue as string | number;
+      }
+    }
+
+    return flattened;
+  });
+}
 
 export function createTournamentCommands(): Command {
   const tournamentCmd = new Command('tournament')
-    .alias('t')
+    .aliases(['t', 'tournaments'])
     .description('Tournament management commands');
 
   tournamentCmd
@@ -169,6 +313,96 @@ export function createTournamentCommands(): Command {
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to update tournament';
         error(message);
+        process.exit(1);
+      }
+    });
+
+  tournamentCmd
+    .command('load <id>')
+    .description('Validate and load fixtures for a tournament from a TSV file')
+    .requiredOption('--input-file <path>', 'Path to the TSV file to load')
+    .option('--confirmation-code <code>', 'Confirmation code from validation phase')
+    .action(async (id, options) => {
+      try {
+        const { client } = await getApiClient();
+        const globalOpts = (global as unknown as { ppOpts?: GlobalOptions }).ppOpts;
+        const format = assertOutputFormat(globalOpts?.format);
+        const rawTsvContent = await readFile(options.inputFile, 'utf-8');
+        const tsvContent = normalizeFixtureTsv(rawTsvContent);
+        const confirmationKey = getTournamentLoadConfirmationKey(id, tsvContent);
+
+        const validation = await client.post<FixtureValidationResult>(
+          `/api/tournaments/${id}/validate-tsv`,
+          { key: Buffer.from(tsvContent, 'utf-8').toString('base64') }
+        );
+
+        const validationFailed = validation.valid === false;
+        if (validationFailed) {
+          error(`Fixture validation failed for tournament ${id}`);
+          printFixtureValidationSummary(validation);
+          process.exit(1);
+        }
+
+        if (options.confirmationCode) {
+          const isValid = await verifyConfirmationCode(confirmationKey, options.confirmationCode);
+          if (!isValid) {
+            error('Invalid or expired confirmation code. Please run without --confirmation-code to generate a new one.');
+            process.exit(1);
+          }
+
+          const rows = flattenValidatedFixtureRows(validation.rows);
+          const loadResult = await client.post<{ count?: number; message?: string }>(
+            `/api/tournaments/${id}/fixtures`,
+            rows
+          );
+
+          await clearConfirmationCode(confirmationKey);
+
+          if (format !== 'table') {
+            console.log(formatOutput({
+              status: 'loaded',
+              tournamentId: id,
+              inputFile: options.inputFile,
+              confirmationCode: options.confirmationCode,
+              loadResult,
+              validation
+            }, { format }));
+            return;
+          }
+
+          success(loadResult.message || `Loaded ${rows.length} fixture(s) into tournament ${id}`);
+          if (typeof loadResult.count === 'number') {
+            info(`Fixtures created: ${loadResult.count}`);
+          }
+          printFixtureValidationIssues('Warnings', validation.warnings);
+          return;
+        }
+
+        const confirmationCode = generateConfirmationCode();
+        await storeConfirmationCode(confirmationKey, confirmationCode);
+
+        if (format !== 'table') {
+          console.log(formatOutput({
+            status: 'validated',
+            tournamentId: id,
+            inputFile: options.inputFile,
+            confirmationCode,
+            expiresInSeconds: 60,
+            validation
+          }, { format }));
+          return;
+        }
+
+        success(`Fixtures validated successfully for tournament ${id}`);
+        printFixtureValidationSummary(validation);
+        console.log('To confirm fixture loading, run:\n');
+        console.log(`  ppx tournaments load ${id} --input-file=${options.inputFile} --confirmation-code=${confirmationCode}\n`);
+        console.log('This confirmation code is valid for 60 seconds.\n');
+        info('No fixtures have been loaded yet. Review the validation output before proceeding.');
+      } catch (err) {
+        const message = getErrorMessage(err, 'Failed to load fixtures');
+        error(message);
+        printFixtureLoadErrorDetails(err);
         process.exit(1);
       }
     });

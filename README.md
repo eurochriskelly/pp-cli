@@ -139,6 +139,10 @@ ppx tournament reset 123
 ppx tournament overview 123
 ppx tournament standings 123
 ppx tournament brackets 123
+
+# Load fixtures from a TSV file with two-step confirmation
+ppx tournaments load 123 --input-file=./schedule.tsv
+ppx tournaments load 123 --input-file=./schedule.tsv --confirmation-code=123456
 ```
 
 ### Squad Management
