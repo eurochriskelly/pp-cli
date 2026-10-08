@@ -1,0 +1,57 @@
+version: '3'
+
+tasks:
+  install:
+    desc: Install dependencies from the lockfile
+    cmds:
+      - npm ci
+
+  ppx:
+    aliases: [dev]
+    desc: Run ppx from source (pass arguments after --)
+    cmds:
+      - npm run dev -- {{.CLI_ARGS}}
+    interactive: true
+
+  build:
+    desc: Compile the TypeScript CLI into dist
+    cmds:
+      - npm run build
+
+  start:
+    desc: Run the compiled CLI (pass arguments after --)
+    cmds:
+      - npm run start -- {{.CLI_ARGS}}
+    interactive: true
+
+  tui:
+    desc: Run the OpenTUI interface
+    cmds:
+      - npm run tui
+    interactive: true
+
+  test:
+    desc: Run tests in watch mode (pass Vitest arguments after --)
+    cmds:
+      - npm run test -- {{.CLI_ARGS}}
+    interactive: true
+
+  test:unit:
+    desc: Run the unit test suite once
+    cmds:
+      - npm run test:unit
+
+  test:contract:
+    desc: Run CLI/API contract tests
+    cmds:
+      - npm run test:contract
+
+  verify:contract:
+    desc: Type-check and run CLI/API contract tests
+    cmds:
+      - npm run verify:contract
+
+  typecheck:
+    desc: Type-check without emitting build output
+    cmds:
+      - npm run typecheck

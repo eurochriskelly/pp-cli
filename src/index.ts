@@ -7,6 +7,8 @@ import { createSquadCommands } from './commands/squad.js';
 import { createFixtureCommands } from './commands/fixture.js';
 import { createChampionshipCommands, createSeriesCommands } from './commands/championship.js';
 import { createClubCommands, createTeamCommands } from './commands/club.js';
+import { createDoctorCommand, createSystemCommands } from './commands/system.js';
+import { createAskCommand } from './commands/ask.js';
 import type { GlobalOptions } from './types/index.js';
 
 const program = new Command();
@@ -34,6 +36,9 @@ program.addCommand(createChampionshipCommands());
 program.addCommand(createSeriesCommands());
 program.addCommand(createClubCommands());
 program.addCommand(createTeamCommands());
+program.addCommand(createSystemCommands());
+program.addCommand(createDoctorCommand());
+program.addCommand(createAskCommand());
 
 // Parse command line arguments
 program.parse();

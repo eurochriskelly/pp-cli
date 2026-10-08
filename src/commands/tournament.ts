@@ -17,20 +17,15 @@ import type { GlobalOptions, Tournament, TournamentSummary } from '../types/inde
 type Fixture = { id: number; tournamentId: number; cards?: unknown[] };
 type Squad = { id: number; tournamentId: number; players?: unknown[] };
 type FixtureLoadRow = Record<string, string>;
-type FixtureImportRow = Record<string, string | number>;
-type FixtureValidationCell = {
-  value?: string | number;
-  warnings?: Array<unknown>;
-};
+type IntegrityWarning = { warningId?: number; message?: string };
 type FixtureValidationResult = {
   valid?: boolean;
-  rows?: Array<FixtureLoadRow | Record<string, FixtureValidationCell>>;
+  rows?: FixtureLoadRow[];
   warnings?: Array<string | { message?: string; row?: number; column?: string }>;
   errors?: Array<string | { message?: string; row?: number; column?: string }>;
   stages?: string[] | Record<string, unknown>;
 };
 const FIXTURE_TSV_HEADERS = ['TIME', 'MATCH', 'CATEGORY', 'PITCH', 'TEAM1', 'STAGE', 'TEAM2', 'UMPIRES', 'DURATION'] as const;
-const FIXTURE_IMPORT_FIELD_ORDER = ['TIME', 'MATCH', 'CATEGORY', 'PITCH', 'TEAM1', 'STAGE', 'TEAM2', 'UMPIRES', 'DURATION'] as const;
 
 function normalizeFixtureTsv(tsvContent: string): string {
   const lines = tsvContent.replace(/^\uFEFF/, '').split(/\r?\n/).filter((line) => line.trim().length > 0);
@@ -122,41 +117,6 @@ function printFixtureLoadErrorDetails(err: unknown): void {
 
   console.error('\nError details:');
   console.error(JSON.stringify(details, null, 2));
-}
-
-function flattenValidatedFixtureRows(
-  rows: Array<FixtureLoadRow | Record<string, FixtureValidationCell>> | undefined
-): FixtureImportRow[] {
-  if (!Array.isArray(rows)) {
-    return [];
-  }
-
-  return rows.map((row) => {
-    const flattened: FixtureImportRow = {};
-
-    for (const field of FIXTURE_IMPORT_FIELD_ORDER) {
-      const rawValue = row[field];
-      if (rawValue === undefined) {
-        continue;
-      }
-
-      if (
-        rawValue &&
-        typeof rawValue === 'object' &&
-        !Array.isArray(rawValue) &&
-        'value' in rawValue
-      ) {
-        const cellValue = (rawValue as FixtureValidationCell).value;
-        if (cellValue !== undefined) {
-          flattened[field] = cellValue;
-        }
-      } else {
-        flattened[field] = rawValue as string | number;
-      }
-    }
-
-    return flattened;
-  });
 }
 
 export function createTournamentCommands(): Command {
@@ -350,11 +310,26 @@ export function createTournamentCommands(): Command {
             process.exit(1);
           }
 
-          const rows = flattenValidatedFixtureRows(validation.rows);
-          const loadResult = await client.post<{ count?: number; message?: string }>(
+          const loadResult = await client.post<{
+            count?: number;
+            message?: string;
+            verification?: {
+              expectedFixtureCount?: number;
+              actualFixtureCount?: number;
+              verified?: boolean;
+            };
+          }>(
             `/api/tournaments/${id}/fixtures`,
-            rows
+            { key: Buffer.from(tsvContent, 'utf-8').toString('base64') }
           );
+
+          if (loadResult.verification?.verified !== true) {
+            throw new Error('Fixture import completed without successful verification');
+          }
+
+          const expectedFixtureCount = Array.isArray(validation.rows)
+            ? validation.rows.length
+            : 0;
 
           await clearConfirmationCode(confirmationKey);
 
@@ -370,7 +345,7 @@ export function createTournamentCommands(): Command {
             return;
           }
 
-          success(loadResult.message || `Loaded ${rows.length} fixture(s) into tournament ${id}`);
+          success(loadResult.message || `Loaded ${expectedFixtureCount} fixture(s) into tournament ${id}`);
           if (typeof loadResult.count === 'number') {
             info(`Fixtures created: ${loadResult.count}`);
           }
@@ -403,6 +378,48 @@ export function createTournamentCommands(): Command {
         const message = getErrorMessage(err, 'Failed to load fixtures');
         error(message);
         printFixtureLoadErrorDetails(err);
+        process.exit(1);
+      }
+    });
+
+  tournamentCmd
+    .command('verify <id>')
+    .description('Check fixture count and tournament integrity after an import or edit')
+    .action(async (id) => {
+      try {
+        const { client } = await getApiClient();
+        const globalOpts = (global as unknown as { ppOpts?: GlobalOptions }).ppOpts;
+        const format = assertOutputFormat(globalOpts?.format);
+        const [fixtures, integrityWarnings] = await Promise.all([
+          client.get<Fixture[]>(`/api/tournaments/${id}/fixtures`),
+          client.get<IntegrityWarning[]>(`/api/tournaments/${id}/integrity-check`)
+        ]);
+
+        const verification = {
+          tournamentId: id,
+          fixtureCount: fixtures.length,
+          integrity: {
+            clean: integrityWarnings.length === 0,
+            warnings: integrityWarnings
+          }
+        };
+
+        if (format !== 'table') {
+          console.log(formatOutput(verification, { format }));
+          return;
+        }
+
+        info(`Fixture count: ${verification.fixtureCount}`);
+        if (verification.integrity.clean) {
+          success(`Tournament ${id} has no integrity warnings.`);
+          return;
+        }
+
+        info(`Tournament ${id} has ${integrityWarnings.length} integrity warning(s).`);
+        printFixtureValidationIssues('Integrity warnings', integrityWarnings);
+      } catch (err) {
+        const message = getErrorMessage(err, `Failed to verify tournament ${id}`);
+        error(message);
         process.exit(1);
       }
     });
@@ -610,7 +627,7 @@ export function createTournamentCommands(): Command {
     .action(async (id) => {
       try {
         const { client } = await getApiClient();
-        await client.put(`/api/tournaments/${id}/status/published`);
+        await client.put(`/api/tournaments/${id}/status`, { status: 'published' });
 
         success(`Published tournament ${id}`);
       } catch (err) {
@@ -626,7 +643,7 @@ export function createTournamentCommands(): Command {
     .action(async (id) => {
       try {
         const { client } = await getApiClient();
-        await client.put(`/api/tournaments/${id}/status/started`);
+        await client.put(`/api/tournaments/${id}/status`, { status: 'started' });
 
         success(`Started tournament ${id}`);
       } catch (err) {
@@ -642,7 +659,7 @@ export function createTournamentCommands(): Command {
     .action(async (id) => {
       try {
         const { client } = await getApiClient();
-        await client.put(`/api/tournaments/${id}/status/closed`);
+        await client.put(`/api/tournaments/${id}/status`, { status: 'closed' });
 
         success(`Closed tournament ${id}`);
       } catch (err) {
@@ -664,11 +681,31 @@ export function createTournamentCommands(): Command {
 
   tournamentCmd
     .command('reset <id>')
-    .description('Reset a tournament (clear all data)')
-    .action(async (id) => {
+    .description('Reset fixture scores and assignments to their planned state')
+    .option('--confirmation-code <code>', 'Confirmation code from preview phase')
+    .action(async (id, options) => {
       try {
         const { client } = await getApiClient();
+        const confirmationKey = `tournament-reset:${id}`;
+
+        if (!options.confirmationCode) {
+          const confirmationCode = generateConfirmationCode();
+          await storeConfirmationCode(confirmationKey, confirmationCode);
+          info(`Resetting tournament ${id} clears fixture scores, results, and live assignments.`);
+          console.log('To confirm tournament reset, run:\n');
+          console.log(`  ppx tournament reset ${id} --confirmation-code=${confirmationCode}\n`);
+          console.log('This confirmation code is valid for 60 seconds.\n');
+          return;
+        }
+
+        const isValid = await verifyConfirmationCode(confirmationKey, options.confirmationCode);
+        if (!isValid) {
+          error('Invalid or expired confirmation code. Please run without --confirmation-code to generate a new one.');
+          process.exit(1);
+        }
+
         await client.post(`/api/tournaments/${id}/reset`);
+        await clearConfirmationCode(confirmationKey);
 
         success(`Reset tournament ${id}`);
       } catch (err) {

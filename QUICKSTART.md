@@ -12,6 +12,18 @@ Config stored in `~/.pp-cli/`:
 - `config.yaml` - API settings
 - `session.json` - Auth tokens
 
+## Automation Preflight
+
+```bash
+# Check the connected API and CLI/API contract version
+ppx doctor --format json
+
+# Read the supported, machine-readable workflow contract
+ppx system capabilities --format json
+```
+
+`doctor` exits with code 2 when the API is unavailable or incompatible.
+
 ## Authentication
 
 ```bash
@@ -35,6 +47,7 @@ ppx tournament publish <id>
 ppx tournament start <id>
 ppx tournament close <id>
 ppx tournament reset <id>
+ppx tournament reset <id> --confirmation-code <code>
 
 # Summary
 ppx tournament overview <id>
@@ -54,7 +67,7 @@ ppx squad delete <tournament-id> <squad-id>
 
 # Players
 ppx squad players <tournament-id> <squad-id>
-ppx squad add-player <tournament-id> <squad-id> -n "Name" --number 10
+ppx squad add-player <tournament-id> <squad-id> --first-name "Jane" --last-name "Doe"
 ppx squad remove-player <tournament-id> <squad-id> <player-id>
 ```
 
@@ -63,20 +76,19 @@ ppx squad remove-player <tournament-id> <squad-id> <player-id>
 ```bash
 ppx fixture list <tournament-id>
 ppx fixture get <tournament-id> <fixture-id>
-ppx fixture generate <tournament-id> -f fixtures.tsv
+ppx tournament load <tournament-id> --input-file fixtures.tsv
+ppx tournament load <tournament-id> --input-file fixtures.tsv --confirmation-code <code>
+ppx tournament verify <tournament-id> --format json
 
 # Match lifecycle
 ppx fixture start <tournament-id> <fixture-id>
-ppx fixture score <tournament-id> <fixture-id> --home 12 --away 8
-ppx fixture end <tournament-id> <fixture-id>
-ppx fixture rewind <tournament-id> <fixture-id>
-
-# Reschedule
-ppx fixture reschedule <tournament-id> <fixture-id> -t "14:30" -p "Pitch 2"
+ppx fixture score <tournament-id> <fixture-id> --home-points 12 --away-points 8
+ppx fixture finish <tournament-id> <fixture-id>
+ppx fixture rewind <tournament-id>
 
 # Cards
 ppx fixture cards <tournament-id> <fixture-id>
-ppx fixture card <tournament-id> <fixture-id> -p "Name" -c yellow
+ppx fixture card <tournament-id> <fixture-id> --team 1 --player "Name" --number 10 --type yellow
 ppx fixture delete-card <tournament-id> <fixture-id> <card-id>
 ```
 
@@ -166,8 +178,12 @@ ppx tournament create -n "Summer Blitz" -d "2024-06-15" -l "Dublin"
 ppx squad create 1 -n "Team A"
 ppx squad create 1 -n "Team B"
 
-# 4. Generate fixtures
-ppx fixture generate 1 -f fixtures.tsv
+# 4. Validate and load fixtures
+ppx tournament load 1 --input-file fixtures.tsv
+ppx tournament load 1 --input-file fixtures.tsv --confirmation-code <code>
+
+# 4a. Verify the imported fixture count and integrity findings
+ppx tournament verify 1 --format json
 
 # 5. Publish and start
 ppx tournament publish 1
@@ -175,8 +191,8 @@ ppx tournament start 1
 
 # 6. Run match
 ppx fixture start 1 1
-ppx fixture score 1 1 --home 12 --away 8
-ppx fixture end 1 1
+ppx fixture score 1 1 --home-points 12 --away-points 8
+ppx fixture finish 1 1
 ```
 
 ### Export to CSV

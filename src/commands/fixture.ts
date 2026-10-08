@@ -541,38 +541,14 @@ export function createFixtureCommands(): Command {
 
   fixtureCmd
     .command('generate <tournament-id>')
-    .description('Generate fixtures from TSV file')
+    .description('Deprecated: use tournament load so TSV is validated and confirmed')
     .requiredOption('-f, --file <file>', 'TSV file path')
     .action(async (tournamentId, options) => {
-      try {
-        const { client } = await getApiClient();
-        
-        // Read file and convert to fixtures array
-        const fs = await import('fs');
-        const content = fs.readFileSync(options.file, 'utf-8');
-        const lines = content.split('\n').filter(line => line.trim());
-        
-        // Parse TSV - assuming header row
-        const headers = lines[0].split('\t');
-        const fixtures: Record<string, string>[] = [];
-        
-        for (let i = 1; i < lines.length; i++) {
-          const values = lines[i].split('\t');
-          const fixture: Record<string, string> = {};
-          headers.forEach((header, index) => {
-            fixture[header.trim()] = values[index]?.trim() || '';
-          });
-          fixtures.push(fixture);
-        }
-
-        await client.post(`/api/tournaments/${tournamentId}/fixtures`, fixtures);
-
-        success(`Generated ${fixtures.length} fixtures`);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to generate fixtures';
-        error(message);
-        process.exit(1);
-      }
+      void options;
+      error(
+        `fixture generate is disabled to prevent an unvalidated import. Run: ppx tournament load ${tournamentId} --input-file <file>`
+      );
+      process.exit(2);
     });
 
   // Match lifecycle commands
@@ -631,26 +607,57 @@ export function createFixtureCommands(): Command {
   fixtureCmd
     .command('card <tournament-id> <fixture-id>')
     .description('Issue a card to a player')
-    .requiredOption('--team <team>', 'Team number (1 or 2)')
+    .requiredOption('--team <team>', 'Team identifier')
     .requiredOption('--player <player>', 'Player name')
+    .requiredOption('--number <number>', 'Player shirt number')
     .requiredOption('--type <type>', 'Card type (yellow, red, black)')
-    .option('--reason <reason>', 'Reason for card')
     .action(async (tournamentId, fixtureRef, options) => {
       try {
         const { client } = await getApiClient();
         const fixtureId = await resolveFixtureId(client, tournamentId, fixtureRef);
 
-        await client.post(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}/cards`, {
-          team: parseInt(options.team),
+        await client.post(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}/carded`, {
+          team: options.team,
           playerName: options.player,
-          cardType: options.type,
-          reason: options.reason
+          playerNumber: parseInt(options.number, 10),
+          cardColor: options.type
         });
 
         success(`Issued ${options.type} card to ${options.player}`);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to issue card';
         error(message);
+        process.exit(1);
+      }
+    });
+
+  fixtureCmd
+    .command('cards <tournament-id> <fixture-id>')
+    .description('List cards issued in a fixture')
+    .action(async (tournamentId, fixtureRef) => {
+      try {
+        const { client } = await getApiClient();
+        const fixtureId = await resolveFixtureId(client, tournamentId, fixtureRef);
+        const cards = await client.get(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}/carded-players`);
+        const opts = (global as unknown as { ppOpts: GlobalOptions }).ppOpts;
+        console.log(formatOutput(cards, { format: assertOutputFormat(opts.format) }));
+      } catch (err) {
+        error(getErrorMessage(err, 'Failed to list fixture cards'));
+        process.exit(1);
+      }
+    });
+
+  fixtureCmd
+    .command('delete-card <tournament-id> <fixture-id> <card-id>')
+    .description('Delete a card issued in a fixture')
+    .action(async (tournamentId, fixtureRef, cardId) => {
+      try {
+        const { client } = await getApiClient();
+        const fixtureId = await resolveFixtureId(client, tournamentId, fixtureRef);
+        await client.delete(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}/carded/${cardId}`);
+        success(`Deleted card ${cardId} from fixture ${fixtureRef} (${fixtureId})`);
+      } catch (err) {
+        error(getErrorMessage(err, 'Failed to delete fixture card'));
         process.exit(1);
       }
     });
@@ -674,18 +681,16 @@ export function createFixtureCommands(): Command {
     });
 
   fixtureCmd
-    .command('reset <tournament-id> <fixture-id>')
-    .description('Reset a fixture to pending state')
-    .action(async (tournamentId, fixtureRef) => {
+    .command('rewind <tournament-id>')
+    .description('Clear the score from the latest started fixture before a tournament starts')
+    .action(async (tournamentId) => {
       try {
         const { client } = await getApiClient();
-        const fixtureId = await resolveFixtureId(client, tournamentId, fixtureRef);
+        await client.put(`/api/tournaments/${tournamentId}/fixtures/rewind`);
 
-        await client.post(`/api/tournaments/${tournamentId}/fixtures/${fixtureId}/reset`);
-
-        success(`Reset fixture ${fixtureRef} (${fixtureId}) to pending state`);
+        success(`Rewound the latest started fixture in tournament ${tournamentId}`);
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to reset fixture';
+        const message = err instanceof Error ? err.message : 'Failed to rewind fixture';
         error(message);
         process.exit(1);
       }

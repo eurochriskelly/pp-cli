@@ -51,6 +51,25 @@ ppx tournament get 1
 ppx tournament create -n "Summer Blitz" -d "2024-06-15" -l "Dublin"
 ```
 
+## Natural-language agent (`ask`)
+
+`ask` runs an auditable agent loop through the existing CLI. It prints every
+`ppx` command it executes, persists follow-up sessions, and reports token usage.
+
+```bash
+export OPENROUTER_API_KEY=sk-or-v1-...
+
+ppx ask "Create a tournament in Maastricht to be played next month"
+ppx ask --session-id <session-id> "Call it Maastricht Summer Cup"
+ppx ask                         # interactive terminal session
+echo "List my draft tournaments" | ppx ask
+```
+
+The default OpenRouter model is `deepseek/deepseek-v4-flash`; use `--model` or
+`PPX_ASK_MODEL` to override it. Files can be snapshotted into a session with a
+repeatable `--file <path>` option. See [the ask architecture](docs/ask.md) for
+the agent loop, safety model, and planned WhatsApp/Excel ingestion pipeline.
+
 ## Configuration
 
 The CLI stores configuration in `~/.pp-cli/`:
@@ -87,6 +106,30 @@ All commands support these global options:
 -f, --format <format>    # Output format: table, json, yaml, csv (default: "table")
 -u, --api-url <url>      # Override API URL
 -v, --verbose            # Enable verbose output
+```
+
+## Automation and API Contract
+
+Before an LLM or other automation changes tournament data, check the connected
+API and read its supported workflow contract:
+
+```bash
+ppx doctor --format json
+ppx system capabilities --format json
+```
+
+`doctor` exits with code 2 when the API is unreachable or exposes an
+incompatible contract. The capabilities response documents the safe fixture
+workflow, including the API response envelopes and the CLI confirmation step.
+
+For an import, use this sequence:
+
+```bash
+ppx tournament load <tournament-id> --input-file fixtures.tsv
+ppx tournament load <tournament-id> --input-file fixtures.tsv --confirmation-code <code>
+ppx tournament verify <tournament-id> --format json
+ppx tournament reset <tournament-id>
+ppx tournament reset <tournament-id> --confirmation-code <code>
 ```
 
 ## Commands
@@ -156,12 +199,12 @@ ppx squad create 123 -n "St. Mary's A" -c "Senior"
 
 # Squad operations
 ppx squad get 123 456
-ppx squad update 123 456 -n "New Name"
+ppx squad update 123 456 -n "New Name" -g "A"
 ppx squad delete 123 456
 
 # Player management
 ppx squad players 123 456
-ppx squad add-player 123 456 -n "John Smith" --number 10
+ppx squad add-player 123 456 --first-name "John" --last-name "Smith"
 ppx squad remove-player 123 456 789
 ```
 
@@ -175,21 +218,22 @@ ppx fixture list 123 -p "Pitch 1"
 # Get fixture details
 ppx fixture get 123 456
 
-# Generate fixtures from TSV
-ppx fixture generate 123 -f fixtures.tsv
+# Validate, review, and then load fixtures from TSV
+ppx tournament load 123 --input-file fixtures.tsv
+ppx tournament load 123 --input-file fixtures.tsv --confirmation-code <code>
+
+# Return machine-readable fixture count and integrity findings
+ppx tournament verify 123 --format json
 
 # Match lifecycle
 ppx fixture start 123 456
-ppx fixture score 123 456 --home 12 --away 8
-ppx fixture end 123 456
-ppx fixture rewind 123 456
-
-# Reschedule
-ppx fixture reschedule 123 456 -t "14:30" -p "Pitch 2"
+ppx fixture score 123 456 --home-points 12 --away-points 8
+ppx fixture finish 123 456
+ppx fixture rewind 123
 
 # Cards
 ppx fixture cards 123 456
-ppx fixture card 123 456 -p "John Smith" -c yellow -r "Unsporting behavior"
+ppx fixture card 123 456 --team 1 --player "John Smith" --number 10 --type yellow
 ppx fixture delete-card 123 456 789
 ```
 
@@ -311,12 +355,13 @@ ppx tournament list -f csv > tournaments.csv
 
 ### Fixture TSV Format
 
-For generating fixtures from a file:
+For validating and loading fixtures from a file. `DAY_OFFSET` is optional and
+uses a zero-based day index for multi-day tournaments:
 
 ```tsv
-TIME	MATCH	CATEGORY	PITCH	TEAM1	STAGE	TEAM2	UMPIRES	DURATION
-09:00	M.1	MEN	Pitch 1	Team A	Gp.1	Team B	Team C	20
-09:25	M.2	MEN	Pitch 1	Team C	Gp.1	Team D	Team A	20
+DAY_OFFSET	TIME	MATCH	CATEGORY	PITCH	TEAM1	STAGE	TEAM2	UMPIRES	DURATION
+0	09:00	M.1	MEN	Pitch 1	Team A	Gp.1	Team B	Team C	20
+1	09:25	M.2	MEN	Pitch 1	Team C	Gp.1	Team D	Team A	20
 ```
 
 ## Examples
@@ -340,8 +385,15 @@ ppx squad create 123 -n "St. Mary's B" -c "Senior"
 ppx squad create 123 -n "Dublin United" -c "Senior"
 ppx squad create 123 -n "Cork Rangers" -c "Senior"
 
-# 4. Generate fixtures
-ppx fixture generate 123 -f fixtures.tsv
+# Add a player using the API's player model
+ppx squad add-player 123 <squad-id> --first-name "Jane" --last-name "Doe"
+
+# 4. Validate and load fixtures
+ppx tournament load 123 --input-file fixtures.tsv
+ppx tournament load 123 --input-file fixtures.tsv --confirmation-code <code>
+
+# 4a. Verify the imported fixture count and integrity findings
+ppx tournament verify 123 --format json
 
 # 5. Publish tournament
 ppx tournament publish 123
@@ -351,8 +403,8 @@ ppx tournament start 123
 
 # 7. Run matches
 ppx fixture start 123 1
-ppx fixture score 123 1 --home 15 --away 10
-ppx fixture end 123 1
+ppx fixture score 123 1 --home-points 15 --away-points 10
+ppx fixture finish 123 1
 
 # 8. Check standings
 ppx tournament standings 123
@@ -429,21 +481,30 @@ ppx -v tournament list
 ## Development
 
 ```bash
-# Install dependencies
-npm install
+# List the available development tasks
+task --list
 
-# Run in development mode
-npm run dev -- tournament list
+# Install dependencies from package-lock.json
+task install
+
+# Run the CLI from source (everything after -- is passed to ppx)
+task ppx
+task ppx -- auth
+task ppx -- tournament list
 
 # Build
-npm run build
+task build
 
 # Type check
-npm run typecheck
+task typecheck
 
-# Run tests
-npm run test
+# Run tests once
+task test:unit
 ```
+
+Task uses `--` to separate task names and options from arguments forwarded to
+the underlying command. For example, use `task ppx -- auth` rather than
+`task ppx auth`.
 
 ## License
 

@@ -45,16 +45,22 @@ export interface TournamentSummary {
 export interface Squad {
   id: number;
   tournamentId: number;
-  name: string;
+  name?: string;
+  teamName?: string;
+  groupLetter?: string | null;
   category?: string;
-  clubId?: number;
+  teamSheetSubmitted?: boolean;
+  notes?: string | null;
   players?: Player[];
 }
 
 export interface Player {
   id: number;
-  name: string;
-  number?: number;
+  name?: string;
+  firstName?: string;
+  secondName?: string;
+  dateOfBirth?: string | null;
+  foirreannId?: string | null;
   squadId?: number;
 }
 

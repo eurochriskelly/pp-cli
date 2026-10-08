@@ -53,7 +53,9 @@ export function createSquadCommands(): Command {
     .description('Create a new squad')
     .requiredOption('-n, --name <name>', 'Squad name')
     .option('-c, --category <category>', 'Category (e.g., Senior, U16, U14)')
-    .option('--club-id <id>', 'Club ID')
+    .option('-g, --group <group>', 'Group label (for example, A or Gp.1)')
+    .option('--team-sheet-submitted', 'Mark the team sheet as submitted')
+    .option('--notes <notes>', 'Squad notes')
     .action(async (tournamentId, options) => {
       try {
         const { client } = await getApiClient();
@@ -61,7 +63,9 @@ export function createSquadCommands(): Command {
         const body = {
           teamName: options.name,
           category: options.category,
-          clubId: options.clubId ? parseInt(options.clubId, 10) : undefined
+          groupLetter: options.group,
+          teamSheetSubmitted: options.teamSheetSubmitted ?? false,
+          notes: options.notes
         };
 
         const squad = await client.post<Squad>(`/api/tournaments/${tournamentId}/squads`, body);
@@ -84,17 +88,29 @@ export function createSquadCommands(): Command {
     .description('Update a squad')
     .option('-n, --name <name>', 'Squad name')
     .option('-c, --category <category>', 'Category')
+    .option('-g, --group <group>', 'Group label')
+    .option('--team-sheet-submitted <value>', 'Whether the team sheet is submitted (true or false)')
+    .option('--notes <notes>', 'Squad notes')
     .action(async (tournamentId, squadId, options) => {
       try {
         const { client } = await getApiClient();
 
         const body: Record<string, unknown> = {};
-        if (options.name) body.name = options.name;
+        if (options.name) body.teamName = options.name;
         if (options.category) body.category = options.category;
+        if (options.group) body.groupLetter = options.group;
+        if (options.teamSheetSubmitted !== undefined) {
+          if (!['true', 'false'].includes(options.teamSheetSubmitted)) {
+            throw new Error('--team-sheet-submitted must be true or false');
+          }
+          body.teamSheetSubmitted = options.teamSheetSubmitted === 'true';
+        }
+        if (options.notes) body.notes = options.notes;
 
         const squad = await client.put<Squad>(`/api/tournaments/${tournamentId}/squads/${squadId}`, body);
 
-        success(`Updated squad "${squad.name}"`);
+        const squadData = squad as unknown as Record<string, unknown>;
+        success(`Updated squad "${(squadData.teamName as string) || squad.name || squadId}"`);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to update squad';
         error(message);
@@ -125,15 +141,15 @@ export function createSquadCommands(): Command {
     .action(async (tournamentId, squadId) => {
       try {
         const { client } = await getApiClient();
-        const squad = await client.get<Squad>(`/api/tournaments/${tournamentId}/squads/${squadId}`);
+        const players = await client.get<Player[]>(`/api/tournaments/${tournamentId}/squads/${squadId}/players`);
 
-        if (!squad.players || squad.players.length === 0) {
+        if (players.length === 0) {
           info('No players in this squad');
           return;
         }
 
         const opts = (global as unknown as { ppOpts: GlobalOptions }).ppOpts;
-        console.log(formatOutput(squad.players, { format: assertOutputFormat(opts.format) }));
+        console.log(formatOutput(players, { format: assertOutputFormat(opts.format) }));
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to list players';
         error(message);
@@ -144,20 +160,28 @@ export function createSquadCommands(): Command {
   squadCmd
     .command('add-player <tournament-id> <squad-id>')
     .description('Add a player to a squad')
-    .requiredOption('-n, --name <name>', 'Player name')
-    .option('--number <number>', 'Player number')
+    .requiredOption('--first-name <name>', 'Player first name')
+    .requiredOption('--last-name <name>', 'Player last name')
+    .option('--date-of-birth <date>', 'Date of birth (YYYY-MM-DD)')
+    .option('--foirreann-id <id>', 'Foireann player ID')
     .action(async (tournamentId, squadId, options) => {
       try {
         const { client } = await getApiClient();
 
         const body = {
-          name: options.name,
-          number: options.number ? parseInt(options.number, 10) : undefined
+          firstName: options.firstName,
+          secondName: options.lastName,
+          dateOfBirth: options.dateOfBirth,
+          foirreannId: options.foirreannId
         };
 
         const player = await client.post<Player>(`/api/tournaments/${tournamentId}/squads/${squadId}/players`, body);
 
-        success(`Added player "${player.name}"`);
+        const playerData = player as unknown as Record<string, unknown>;
+        const name = [playerData.firstName, playerData.secondName]
+          .filter(Boolean)
+          .join(' ') || player.name;
+        success(`Added player "${name}"`);
         info(`ID: ${player.id}`);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to add player';

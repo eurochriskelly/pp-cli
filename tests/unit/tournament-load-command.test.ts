@@ -50,6 +50,7 @@ describe('tournament load command', () => {
   it('validates fixtures and generates a confirmation code', async () => {
     const client = {
       post: vi.fn().mockResolvedValue({
+        valid: true,
         rows: [{ TIME: '09:00', MATCH: 'M.1' }],
         warnings: [{ message: 'Rest gap is tight', row: 1, column: 'TIME' }],
         stages: ['Gp.1']
@@ -59,8 +60,8 @@ describe('tournament load command', () => {
     mockGetApiClient.mockResolvedValue({ client });
 
     const logs: string[] = [];
-    const logSpy = vi.spyOn(console, 'log').mockImplementation((value?: unknown) => {
-      logs.push(String(value ?? ''));
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((...values: unknown[]) => {
+      logs.push(values.map((value) => String(value ?? '')).join(' '));
     });
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
@@ -82,6 +83,7 @@ describe('tournament load command', () => {
       post: vi
         .fn()
         .mockResolvedValueOnce({
+          valid: true,
           rows: [{
             TIME: { value: '09:00', warnings: [] },
             MATCH: { value: 'M.1', warnings: [] },
@@ -97,7 +99,12 @@ describe('tournament load command', () => {
         })
         .mockResolvedValueOnce({
           message: 'Fixtures created',
-          count: 1
+          count: 1,
+          verification: {
+            expectedFixtureCount: 1,
+            actualFixtureCount: 1,
+            verified: true
+          }
         })
     };
 
@@ -114,17 +121,9 @@ describe('tournament load command', () => {
     );
 
     expect(mockVerifyConfirmationCode).toHaveBeenCalledWith(confirmationKey, '123456');
-    expect(client.post).toHaveBeenNthCalledWith(2, '/api/tournaments/123/fixtures', [{
-      TIME: '09:00',
-      MATCH: 'M.1',
-      CATEGORY: 'MENS',
-      PITCH: 'PITCH1',
-      TEAM1: 'A',
-      STAGE: 'GP.1',
-      TEAM2: 'B',
-      UMPIRES: 'C',
-      DURATION: 30
-    }]);
+    expect(client.post).toHaveBeenNthCalledWith(2, '/api/tournaments/123/fixtures', {
+      key: Buffer.from(normalizedTsvContent, 'utf-8').toString('base64')
+    });
     expect(mockClearConfirmationCode).toHaveBeenCalledWith(confirmationKey);
 
     logSpy.mockRestore();
@@ -202,6 +201,7 @@ describe('tournament load command', () => {
 
     const client = {
       post: vi.fn().mockResolvedValue({
+        valid: true,
         rows: [],
         warnings: []
       })
@@ -222,6 +222,96 @@ describe('tournament load command', () => {
     expect(decoded).toContain('2nd best 2nd\tCUP.SF1\tbest 1st\t2nd best 3rd');
     expect(decoded).toContain('winner M.7\tCUP.FIN\twinner M.8\tloser M.8');
 
+    logSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+});
+
+describe('tournament verify command', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns fixture count and integrity warnings without mutating the tournament', async () => {
+    const client = {
+      get: vi
+        .fn()
+        .mockResolvedValueOnce([{ id: 1, tournamentId: 123 }, { id: 2, tournamentId: 123 }])
+        .mockResolvedValueOnce([{ warningId: 1, message: 'Fixture 2 has an unresolved winner reference.' }])
+    };
+    mockGetApiClient.mockResolvedValue({ client });
+
+    const logs: string[] = [];
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((...values: unknown[]) => {
+      logs.push(values.map((value) => String(value ?? '')).join(' '));
+    });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const command = createTournamentCommands();
+    await command.parseAsync(['node', 'test', 'verify', '123'], { from: 'node' });
+
+    expect(client.get).toHaveBeenNthCalledWith(1, '/api/tournaments/123/fixtures');
+    expect(client.get).toHaveBeenNthCalledWith(2, '/api/tournaments/123/integrity-check');
+    expect(logs.join('\n')).toContain('Fixture count: 2');
+    expect(logs.join('\n')).toContain('unresolved winner reference');
+
+    logSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+});
+
+describe('tournament lifecycle command API contract', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGenerateConfirmationCode.mockReturnValue('654321');
+  });
+
+  it.each([
+    ['publish', 'published'],
+    ['start', 'started'],
+    ['close', 'closed']
+  ])('uses the status endpoint to %s a tournament', async (commandName, status) => {
+    const client = { put: vi.fn().mockResolvedValue({}) };
+    mockGetApiClient.mockResolvedValue({ client });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await createTournamentCommands().parseAsync(['node', 'test', commandName, '123'], { from: 'node' });
+
+    expect(client.put).toHaveBeenCalledWith('/api/tournaments/123/status', { status });
+    logSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  it('requires confirmation before resetting a tournament', async () => {
+    const client = { post: vi.fn().mockResolvedValue({}) };
+    mockGetApiClient.mockResolvedValue({ client });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await createTournamentCommands().parseAsync(['node', 'test', 'reset', '123'], { from: 'node' });
+
+    expect(mockStoreConfirmationCode).toHaveBeenCalledWith('tournament-reset:123', '654321');
+    expect(client.post).not.toHaveBeenCalled();
+    logSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  it('resets only after a valid confirmation code', async () => {
+    const client = { post: vi.fn().mockResolvedValue({}) };
+    mockGetApiClient.mockResolvedValue({ client });
+    mockVerifyConfirmationCode.mockResolvedValue(true);
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await createTournamentCommands().parseAsync(
+      ['node', 'test', 'reset', '123', '--confirmation-code', '654321'],
+      { from: 'node' }
+    );
+
+    expect(mockVerifyConfirmationCode).toHaveBeenCalledWith('tournament-reset:123', '654321');
+    expect(client.post).toHaveBeenCalledWith('/api/tournaments/123/reset');
+    expect(mockClearConfirmationCode).toHaveBeenCalledWith('tournament-reset:123');
     logSpy.mockRestore();
     errorSpy.mockRestore();
   });

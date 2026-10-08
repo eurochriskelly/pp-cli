@@ -15,6 +15,8 @@
     "tui": "bun run src/tui.tsx",
     "test": "vitest",
     "test:unit": "vitest run --reporter=verbose",
+    "test:contract": "vitest run tests/unit/system-command.test.ts tests/unit/tournament-load-command.test.ts tests/unit/fixture-contract-command.test.ts tests/unit/squad-contract-command.test.ts --exclude 'wt-branches/**' --reporter=verbose",
+    "verify:contract": "npm run typecheck && npm run test:contract",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
     "typecheck": "tsc --noEmit",
